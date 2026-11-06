@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local IMDb snapshots and analytical outputs
+/data/raw/
+/data/processed/
+/data/results/
+/data/reference/
