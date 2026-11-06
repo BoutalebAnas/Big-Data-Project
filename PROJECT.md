@@ -6,11 +6,20 @@ La liste des contributeurs et leurs adresses e-mail sont à compléter par le gr
 
 ## Installation
 
-Prérequis pour le traitement local complet : Python 3.11 ou 3.12, Java 17, connexion HTTPS
-à PyPI et IMDb, 8 Gio de RAM disponibles et environ 20 Gio de disque libre pour les archives,
+Le traitement local complet requiert Python 3.11 ou 3.12, Java 17, un accès HTTPS à PyPI
+et à IMDb, 8 Gio de RAM disponibles et environ 20 Gio de disque libre pour les archives,
 le travail Spark et une préparation. Sur Windows, exécuter les commandes dans Ubuntu WSL 2.
 Pour de meilleures performances, cloner le projet sur le système de fichiers Linux de WSL.
 Java 17 doit être accessible via `JAVA_HOME` ou `PATH`.
+
+Sur Ubuntu ou Ubuntu WSL, installer les prérequis depuis le terminal Linux.
+
+```bash
+sudo apt-get update
+sudo apt-get install openjdk-17-jdk python3 python3-venv
+```
+
+Depuis la racine du dépôt, créer l'environnement Python et lancer Jupyter.
 
 ```bash
 java -version
@@ -24,11 +33,14 @@ jupyter lab
 ```
 
 Ouvrir `notebooks/01_data_preparation.ipynb` avec le noyau **Python (IMDb)** puis exécuter
-toutes les cellules. L'exécution peut aussi se faire sans interface depuis la racine :
+toutes les cellules. Répéter avec `notebooks/02_data_exploration.ipynb`. L'exécution peut
+aussi se faire sans interface depuis la racine. Les copies exécutées seront dans `/tmp`.
 
 ```bash
 jupyter nbconvert --to notebook --execute --ExecutePreprocessor.kernel_name=imdb \
   --ExecutePreprocessor.timeout=-1 --output-dir=/tmp notebooks/01_data_preparation.ipynb
+jupyter nbconvert --to notebook --execute --ExecutePreprocessor.kernel_name=imdb \
+  --ExecutePreprocessor.timeout=-1 --output-dir=/tmp notebooks/02_data_exploration.ipynb
 ```
 
 Les archives existantes dans `data/raw/` sont réutilisées. Les autres sont téléchargées
@@ -67,8 +79,38 @@ Les références orphelines sont comptées après le nettoyage des clés. Les va
 conservées dans les tables, et les jointures analytiques sur une entité exigent un parent.
 Les champs à listes restent séparés par des virgules, conformément au format d'entrée.
 
+## Exploitation des résultats
+
+Les seuils des huit questions sont regroupés dans `PARAMETERS` au début du deuxième
+notebook. Chaque exécution exporte ses DataFrames dans
+`data/results/<préparation>/<exécution>/`. `summary.json` y consigne les seuils, les
+volumes et la couverture des langues. La présence de ce fichier indique une exécution
+terminée. Les tables peuvent être relues avec `spark.read.parquet(chemin)`.
+
+Les crédits publics sont limités aux principaux pour les acteurs et plusieurs autres
+métiers. Les notes et votes sont ceux de l'instantané utilisé, y compris pour les films
+anciens. Le notebook affiche les hypothèses de chaque requête ainsi que les tableaux
+destinés à la vérification. Les exports de préparation contiennent les profils,
+les anomalies et des exemples. Les exports d'exploration comprennent le détail par
+genre, le classement annuel, les comparaisons et les résultats individuels.
+
+### Langue originale des films
+
+IMDb fournit la langue d'un titre alternatif dans `title.akas`. En l'absence d'un
+référentiel externe, Q6 exporte seulement un indicateur nommé `title_proxy` et sa
+couverture. Pour calculer Q6 sur les langues originales des films, créer le fichier UTF-8
+`data/reference/original_languages.csv` avec l'en-tête `tconst,language,source_uri`.
+Fournir un titre IMDb, un code ISO 639-1 ou ISO 639-3 normalisé et une URL justifiant
+la langue, à raison d'une ligne par couple titre–langue. Utiliser le même code pour une
+même langue. Le mode `verified` analyse la couverture du fichier fourni et enregistre
+son empreinte SHA-256. Les résultats restent bornés aux films documentés et aux
+crédits publics. Wikidata offre une piste pour construire ce référentiel en joignant
+les identifiants IMDb aux déclarations de langue originale, après vérification des
+sources. [Identifiant IMDb P345](https://www.wikidata.org/wiki/Property:P345) ·
+[Langue originale P364](https://www.wikidata.org/wiki/Property:P364)
+
 ## Utilisation d'IA
 
 OpenAI Codex a été utilisé pour développer le chargement, les contrôles de qualité, le
-nettoyage, le notebook de préparation, les tests et ce guide technique. Chaque membre
-rédige lui-même ses explications et raisonnements dans `REPORT.md`.
+nettoyage, les requêtes d'exploration, les deux notebooks, les tests et ce guide technique.
+Chaque membre rédige lui-même ses explications et raisonnements dans `REPORT.md`.
