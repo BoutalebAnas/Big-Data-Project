@@ -1,5 +1,6 @@
 import gzip
 
+import pytest
 from pyspark.sql import types as T
 
 from src.data_quality import _profile, cleaning_rules, reference_audit
@@ -54,6 +55,15 @@ def test_rating_validation_handles_nan_and_overflow(spark):
     assert [(row.averageRating, row.numVotes) for row in clean.orderBy("tconst").collect()] == [
         (8.2, 2147483648), (None, None), (None, None),
     ]
+
+
+@pytest.mark.parametrize("rows", [[], [("tt1", "8.0", "10")]])
+def test_profile_handles_tables_without_repeated_keys(spark, tmp_path, rows):
+    raw = spark.createDataFrame(rows, "tconst string, averageRating string, numVotes string")
+    profiles, issues = _profile("title.ratings", raw, tmp_path / "clean", 2026)
+    assert all(total == len(rows) and missing == 0 for _, _, _, total, missing, _ in profiles)
+    assert all(pct == (0.0 if rows else None) for *_, pct in profiles)
+    assert all(count == 0 for _, _, count, *_ in issues)
 
 
 def test_reference_audit_counts_scalar_and_list_links(spark):
