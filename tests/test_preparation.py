@@ -7,7 +7,9 @@ from src.imdb_loader import download_table, read_tsv
 
 
 def test_profile_reads_gzip_and_audits_invalid_and_duplicate_keys(spark, tmp_path):
-    archive = tmp_path / "name.basics.tsv.gz"
+    raw_dir = tmp_path / "raw data & sources"
+    raw_dir.mkdir()
+    archive = raw_dir / "name.basics.tsv.gz"
     with gzip.open(archive, "wt", encoding="utf-8") as stream:
         stream.write("nconst\tprimaryName\tbirthYear\tdeathYear\tprimaryProfession\tknownForTitles\n")
         stream.write("nm1\tAlice\t1990\t1980\tactor\t\\N\n" * 2)
@@ -16,9 +18,9 @@ def test_profile_reads_gzip_and_audits_invalid_and_duplicate_keys(spark, tmp_pat
         stream.write("nm3\tDifferent\t1985\t\\N\tactor\t\\N\n")
         stream.write("\\N\tNo key\t1980\t\\N\tactor\t\\N\n")
 
-    assert download_table("name.basics", tmp_path) == archive
+    assert download_table("name.basics", raw_dir) == archive
     raw = read_tsv(spark, "name.basics", archive)
-    out = tmp_path / "clean"
+    out = tmp_path / "clean data & results"
     profiles, issues = _profile("name.basics", raw, out, 2026)
     stats = {(stage, name): (total, missing, pct)
              for _, name, stage, total, missing, pct in profiles}
@@ -32,7 +34,8 @@ def test_profile_reads_gzip_and_audits_invalid_and_duplicate_keys(spark, tmp_pat
     assert counts["duplicate_rows"] == counts["missing_or_invalid_key"] == 1
     assert counts["conflicting_keys"] == 1 and counts["conflicting_rows"] == 2
 
-    clean = spark.read.parquet(out.as_uri())
+    assert (out / "_SUCCESS").is_file()
+    clean = spark.read.parquet(out.as_posix())
     assert clean.schema["birthYear"].dataType == T.IntegerType()
     assert [(row.nconst, row.birthYear) for row in clean.orderBy("nconst").collect()] == [
         ("nm1", 1990), ("nm2", None),

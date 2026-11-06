@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
+from pyspark import StorageLevel
 from pyspark.sql import Observation, functions as F
 
 from src.imdb_loader import COLUMNS, download_table, inflate_tsv, read_prepared, read_tsv
@@ -36,7 +37,7 @@ REFERENCES = (
 
 
 def missing(column):
-    return column.isNull() | column.rlike(r"(?U)^\s*$") | (F.trim(column) == r"\N")
+    return column.isNull() | F.trim(column).isin("", r"\N")
 
 
 def _numeric_rules(table, year):
@@ -101,7 +102,7 @@ def _sample(table, column):
 
 
 def _profile(table, raw, output, year):
-    """Audit, deduplicate and write a table with one scan of its TSV input."""
+    """Audit and clean a table while restricting wide comparisons to repeated keys."""
     columns, issues = cleaning_rules(table, raw, year)
     before, duplicates, after = Observation(), Observation(), Observation()
     observed = raw.observe(
@@ -116,37 +117,49 @@ def _profile(table, raw, output, year):
                 F.min(F.when(condition, _sample(table, column))).alias(f"example_{issue}"),
             )
         ],
-    )
+    ).persist(StorageLevel.DISK_ONLY)
     keys = KEYS[table]
     valid = observed.filter(~issues["missing_or_invalid_key"][0])
-    # Keep all distinct raw variants out of the result if a key is ambiguous.
-    # Compare normalized strings before numeric cleaning so invalid variants
-    # cannot silently become identical to a genuinely missing value.
-    variants = F.struct(*[F.when(~missing(F.col(name)), F.col(name)).alias(name)
-                          for name in columns if name not in keys])
-    grouped = (
-        valid.select(*[columns[name].alias(name) for name in keys],
-                     variants.alias("_raw"),
-                     F.struct(*[expr.alias(name) for name, expr in columns.items()
-                                if name not in keys]).alias("_clean"))
-        .groupBy(*keys).agg(F.min("_raw").alias("_first"), F.max("_raw").alias("_last"),
-                            F.min("_clean").alias("_clean"), F.count("*").alias("_rows"))
+    # Ordering is an integer key. Compare the other fields as raw text so
+    # cleaning cannot turn two conflicting variants into an identical row.
+    payload = [name for name in columns if name not in keys]
+    keyed = valid.select(
+        *[columns[name].alias(name) for name in keys],
+        *[F.col(name) for name in payload],
     )
-    conflict = F.col("_first") != F.col("_last")
-    duplicate = ~conflict & (F.col("_rows") > 1)
-    grouped = grouped.observe(
-        duplicates,
-        F.count_if(conflict).alias("conflicting_keys"),
-        F.sum(F.when(conflict, F.col("_rows")).otherwise(0)).alias("conflicting_rows"),
-        F.sum(F.when(duplicate, F.col("_rows") - 1).otherwise(0)).alias("duplicate_rows"),
-        F.min(F.when(conflict, F.to_json(F.struct(*keys, "_first", "_last")))).alias("conflict_example"),
-        F.min(F.when(duplicate, F.to_json(F.struct(*keys, "_rows")))).alias("duplicate_example"),
-    )
-    clean = grouped.filter(~conflict).select(*keys, "_clean.*").select(*columns)
-    clean.observe(
-        after, F.count("*").alias("rows"),
-        *[F.count_if(F.col(name).isNull()).alias(name) for name in columns],
-    ).write.parquet(output.as_uri())
+    repeated_keys = keyed.groupBy(*keys).count().filter(F.col("count") > 1).drop("count")
+    repeated_keys = repeated_keys.persist(StorageLevel.DISK_ONLY)
+    try:
+        has_duplicates = repeated_keys.count() > 0
+        unique = keyed.join(repeated_keys, list(keys), "left_anti") if has_duplicates else keyed
+        clean = unique.select(*[F.col(name) if name in keys else expr.alias(name)
+                                for name, expr in columns.items()])
+        if has_duplicates:
+            variants = F.struct(*[F.when(~missing(F.col(name)), F.col(name)).alias(name)
+                                  for name in payload])
+            grouped = keyed.join(repeated_keys, list(keys), "left_semi").groupBy(*keys).agg(
+                F.min(variants).alias("_first"), F.max(variants).alias("_last"), F.count("*").alias("_rows")
+            )
+            conflict = F.col("_first") != F.col("_last")
+            grouped = grouped.observe(
+                duplicates,
+                F.count_if(conflict).alias("conflicting_keys"),
+                F.sum(F.when(conflict, F.col("_rows")).otherwise(0)).alias("conflicting_rows"),
+                F.sum(F.when(~conflict, F.col("_rows") - 1).otherwise(0)).alias("duplicate_rows"),
+                F.min(F.when(conflict, F.to_json(F.struct(*keys, "_first", "_last")))).alias("conflict_example"),
+                F.min(F.when(~conflict, F.to_json(F.struct(*keys, "_rows")))).alias("duplicate_example"),
+            )
+            resolved = grouped.filter(~conflict).select(*keys, "_first.*").select(
+                *[F.col(name) if name in keys else expr.alias(name) for name, expr in columns.items()]
+            )
+            clean = clean.unionByName(resolved)
+        clean.observe(
+            after, F.count("*").alias("rows"),
+            *[F.count_if(F.col(name).isNull()).alias(name) for name in columns],
+        ).write.parquet(output.as_posix())
+    finally:
+        repeated_keys.unpersist()
+        observed.unpersist()
 
     profiles = [(table, name, stage, counts["rows"], counts[name],
                  100.0 * counts[name] / counts["rows"] if counts["rows"] else None)
@@ -154,7 +167,10 @@ def _profile(table, raw, output, year):
     summary = [(table, issue, before.get[f"count_{issue}"], "rows", action,
                 before.get[f"example_{issue}"])
                for issue, (_, _, action) in issues.items()]
-    metrics = duplicates.get
+    metrics = duplicates.get if has_duplicates else {
+        "duplicate_rows": 0, "conflicting_keys": 0, "conflicting_rows": 0,
+        "duplicate_example": None, "conflict_example": None,
+    }
     summary.extend([
         (table, "duplicate_rows", metrics["duplicate_rows"] or 0, "rows",
          "collapse_identical_rows", metrics["duplicate_example"]),
@@ -210,8 +226,8 @@ def prepare(spark, root, *, expand_gzip=True, year=None):
     anomalies = spark.createDataFrame(
         issues, "table string, issue string, count long, unit string, action string, example string"
     )
-    profile.coalesce(1).write.parquet((snapshot / "quality" / "missing").as_uri())
-    anomalies.coalesce(1).write.parquet((snapshot / "quality" / "anomalies").as_uri())
+    profile.coalesce(1).write.parquet((snapshot / "quality" / "missing").as_posix())
+    anomalies.coalesce(1).write.parquet((snapshot / "quality" / "anomalies").as_posix())
     manifest = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "validation_year": year,

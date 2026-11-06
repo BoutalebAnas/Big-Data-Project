@@ -86,7 +86,7 @@ def read_tsv(spark, table, path):
         spark.read.schema(schema)
         .options(sep="\t", header="true", nullValue=r"\N", quote="\u0000",
                  encoding="UTF-8", mode="FAILFAST", enforceSchema="false")
-        .csv(path.resolve().as_uri())
+        .csv(path.resolve().as_posix())
     )
 
 
@@ -113,6 +113,6 @@ def prepared_snapshot(root):
 
 def read_prepared(spark, snapshot):
     return {
-        table: spark.read.parquet((snapshot / "tables" / table).as_uri())
+        table: spark.read.parquet((snapshot / "tables" / table).as_posix())
         for table in COLUMNS
     }
