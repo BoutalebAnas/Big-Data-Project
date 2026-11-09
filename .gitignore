@@ -224,3 +224,9 @@ __marimo__/
 /data/processed/
 /data/results/
 /data/reference/
+
+
+# Streaming
+data/streaming/output/
+data/streaming/checkpoints/
+*.log
