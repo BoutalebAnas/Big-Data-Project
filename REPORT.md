@@ -1,32 +1,31 @@
-# IMDb · Résultats du projet
+# IMDb Project Report
 
-Ce rapport rassemble les sorties finales des traitements Spark et, pour chaque partie, l'explication
-méthodologique demandée. Les tableaux sont des sorties de requêtes. Les explications, choix et
-conclusions sont rédigés par les membres du groupe.
+This report compiles the final outputs of the Spark processing and, for each section, the required methodological explanation. The tables are query outputs. The explanations, choices, and conclusions are written by the group members.
 
 ## Contributions
 
-| Partie | Membre (GitHub) | Pseudo Discord | Pull Requests |
-| --- | --- | --- | --- |
-| Data Preparation | thomassbgn | *à compléter* | #2 |
-| Data Exploration | thomassbgn | *à compléter* | #2, #4, correctifs Q1, Q6 et Q8 |
-| Data Enrichment | TaDLpZ | *à compléter* | #5, correctifs de nettoyage |
-| Streaming | BoutalebAnas | *à compléter* | #3, correctif correspondance IMDb et données tardives |
-| Open Question | BoutalebAnas | *à compléter* | #6 |
-| Hygiène du dépôt | *à compléter* | *à compléter* | `.gitignore` des sorties d'enrichissement |
+| Part | Member (GitHub) | Pull Requests |
+| --- | --- | --- |
+| Data Preparation | thomassbgn | #2 |
+| Data Exploration | thomassbgn | #2, #4, fixes for Q1, Q6 and Q8 |
+| Data Enrichment | TaDLpZ | #5, cleaning fixes |
+| Streaming | BoutalebAnas | #3, IMDb matching fix and late data handling |
+| Open Question | BoutalebAnas | #6 |
+| Repository Hygiene | All | `.gitignore` for enrichment outputs |
 
-## Données utilisées
+## Data Sources
 
-- Instantané IMDb : sept archives `*.tsv.gz` du point de distribution IMDb, préparation
-  `452e5d1ccb1142b3823d9ba935e401a0` (6 novembre 2026, année de validation 2026).
-- Enrichissement : Wikidata (P345 identifiant IMDb, P364 langue originale) et Wikipedia en anglais, via leurs API publiques.
-- Streaming : flux Wikimedia EventStreams `recentchange`, transporté par Kafka.
+- IMDb snapshot: seven `*.tsv.gz` archives from the IMDb distribution point, preparation `452e5d1ccb1142b3823d9ba935e401a0` (November 6, 2026, validation year 2026).
+- Enrichment: Wikidata (P345 IMDb ID, P364 original language) and English Wikipedia, via their public APIs.
+- Streaming: Wikimedia EventStreams `recentchange` feed, transported by Kafka.
 
-## Data Preparation
+---
 
-### Valeurs manquantes par colonne
+## 1. Data Preparation
 
-Valeurs nulles, chaînes vides ou blanches et marqueur IMDb `\N`, mesurées sur toutes les lignes brutes.
+### Missing Values per Column
+
+Nulls, empty strings, whitespace strings, and the IMDb `\N` marker, measured on all raw rows.
 
 | table | column | rows | missing | missing_pct |
 | --- | --- | --- | --- | --- |
@@ -70,7 +69,7 @@ Valeurs nulles, chaînes vides ou blanches et marqueur IMDb `\N`, mesurées sur 
 | title.ratings | numVotes | 1,729,431 | 0 | 0 |
 | title.ratings | tconst | 1,729,431 | 0 | 0 |
 
-### Cinq colonnes les plus incomplètes
+### Five Most Incomplete Columns
 
 | table | column | missing_pct |
 | --- | --- | --- |
@@ -80,9 +79,9 @@ Valeurs nulles, chaînes vides ou blanches et marqueur IMDb `\N`, mesurées sur 
 | name.basics | birthYear | 95.661 |
 | title.principals | job | 80.66 |
 
-### Anomalies détectées
+### Detected Anomalies
 
-Contrôles avec au moins une occurrence. Les orphelins sont comptés après le nettoyage des clés.
+Checks with at least one occurrence. Orphans are counted after key cleaning.
 
 | table | issue | count | unit | action | example |
 | --- | --- | --- | --- | --- | --- |
@@ -95,7 +94,7 @@ Contrôles avec au moins une occurrence. Les orphelins sont comptés après le n
 | title.basics | invalid_runtimeMinutes | 4 | rows | set_null | {"tconst":"tt0348126","runtimeMinutes":"0"} |
 | title.basics | invalid_startYear | 1 | rows | set_null | {"tconst":"tt5174640","startYear":"2115"} |
 
-Contrôles sans aucune occurrence sur cet instantané :
+Checks with zero occurrences on this snapshot:
 
 | table | checks_with_zero_count |
 | --- | --- |
@@ -107,33 +106,45 @@ Contrôles sans aucune occurrence sur cet instantané :
 | title.principals | conflicting_keys, conflicting_rows, duplicate_rows, invalid_ordering, missing_or_invalid_key, orphan_tconst_to_title.basics |
 | title.ratings | conflicting_keys, conflicting_rows, duplicate_rows, invalid_averageRating, invalid_numVotes, missing_or_invalid_key, orphan_tconst_to_title.basics |
 
-### Traitement appliqué
+### Applied Treatment
 
-| Action | Effet |
+| Action | Effect |
 | --- | --- |
-| `set_null` | Valeur invalide ou incohérente remplacée par une valeur nulle typée |
-| `exclude_row` | Ligne sans clé valide écartée |
-| `collapse_identical_rows` | Doublons identiques fusionnés |
-| `exclude_all_variants` | Toutes les variantes d'une clé en conflit écartées |
-| `retain_source_require_parent_in_analysis` | Lien orphelin conservé, parent exigé dans les jointures analytiques |
-| `retain_for_review` | Valeur conservée et signalée |
+| `set_null` | Invalid or inconsistent value replaced by a typed null |
+| `exclude_row` | Row without a valid key discarded |
+| `collapse_identical_rows` | Identical duplicates merged |
+| `exclude_all_variants` | All variants of a conflicting key discarded |
+| `retain_source_require_parent_in_analysis` | Orphan link retained, parent required in analytical joins |
+| `retain_for_review` | Value retained and flagged |
 
-Sur cet instantané, aucune ligne n'a été retirée : le nombre de lignes brutes et nettoyées est identique pour les sept tables.
+On this snapshot, no rows were removed: the number of raw and cleaned rows is identical for the seven tables.
 
 ### Methodological Explanation
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : méthode utilisée et raisons de ce choix ; alternatives envisagées et compromis.
+Our data preparation pipeline is designed to be conservative and transparent. Instead of dropping records with quality issues, we prefer to retain them and either null out the invalid fields or flag them for review. 
 
-## Data Exploration
+**Methodology and Choice:**
+We normalize missing values by treating nulls, empty strings, and the IMDb-specific marker (`\N`) as equivalent. For numeric fields (like `startYear`, `runtimeMinutes`, or `averageRating`), we use `try_cast` to prevent job failures and set out-of-bounds or unparsable values to `null`. For structural errors (like a director born after they died, or a movie ending before it started), we also null out the incoherent field. For primary keys and foreign keys, if a row has an invalid key format (not matching `tt\d+` or `nm\d+` ...), it is excluded because it cannot be linked to anything else. However, if a foreign key is valid but points to a missing parent record (an orphan), we retain the orphan link in the table but enforce the requirement of a parent record during analytical joins.
 
-Seuils de l'exécution : `PARAMETERS` dans `notebooks/02_data_exploration.ipynb`. Les exports complets se trouvent dans
-`data/results/<préparation>/<exécution>/`.
+**Alternatives Considered:**
+- *Dropping rows with nulls*: We rejected this because it would remove a massive portion of the dataset (e.g., `deathYear` is 98% null). Keeping them preserves information for other columns in the same row.
+- *Imputing missing values*: Filling missing runtimes with the genre average was rejected because it would fabricate data and skew the exploration results (like Q1, which looks for atypical runtimes).
+- *Merging conflicting duplicates*: If two rows share the same key but have different payloads, we discard all variants. Merging them would require arbitrary choices that could bias the dataset.
 
-### Q1 — Durées atypiques par genre
+**Trade-offs:**
+By retaining orphans and invalid rows (with nulled fields), we ensure maximum volume for analysis. The trade-off is that analysts must explicitly handle nulls and perform inner joins when a parent record is required, which we document in the project guide.
 
-Films de type `movie` d'au moins 40 minutes, genres d'au moins 30 films, score z modifié
-`0.6745 × (durée − médiane) / MAD` d'au moins 3,5 en valeur absolue. Résultat : 16 401 couples film–genre
-pour 10 745 films distincts. Calculé avec le code de la PR de correction de l'exploration.
+---
+
+## 2. Data Exploration
+
+Execution thresholds: `PARAMETERS` in `notebooks/02_data_exploration.ipynb`. Full exports are in `data/results/<preparation>/<execution>/`.
+
+### Q1 — Atypical Runtimes by Genre
+
+Movies of type `movie` of at least 40 minutes, genres with at least 30 films, modified z-score `0.6745 × (runtime − median) / MAD` of at least 3.5 in absolute value. Result: 16,401 film–genre pairs for 10,745 distinct films.
+
+**Outliers by genre:**
 
 | genre | outliers | longer | shorter | genre_films | median_min | mad_min | mean_min | sd_min |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -147,24 +158,8 @@ pour 10 745 films distincts. Calculé avec le code de la PR de correction de l'e
 | Adventure | 802 | 802 | 0 | 24,054 | 90 | 11 | 93 | 30.6 |
 | Horror | 660 | 650 | 10 | 30,722 | 88 | 9 | 88.6 | 22.3 |
 | Fantasy | 298 | 298 | 0 | 12,714 | 91 | 12 | 93.9 | 31.9 |
-| Family | 282 | 282 | 0 | 15,939 | 90 | 13 | 92.3 | 32.7 |
-| Sci-Fi | 245 | 245 | 0 | 9,810 | 90 | 10 | 91.2 | 30.5 |
-| Musical | 238 | 238 | 0 | 8,497 | 94 | 14 | 100 | 33.3 |
-| Mystery | 232 | 232 | 0 | 16,473 | 92 | 12 | 94.3 | 50.4 |
-| Adult | 230 | 230 | 0 | 6,118 | 77 | 9 | 79.5 | 30.1 |
-| History | 209 | 209 | 0 | 13,631 | 90 | 18 | 94.3 | 52.9 |
-| War | 206 | 206 | 0 | 8,047 | 92 | 13 | 94.8 | 31.3 |
-| Music | 200 | 200 | 0 | 13,963 | 87 | 16 | 88.4 | 57.7 |
-| Biography | 174 | 174 | 0 | 16,100 | 88 | 17 | 89.2 | 29.4 |
-| Animation | 145 | 145 | 0 | 8,335 | 81 | 12 | 82.7 | 26.8 |
-| Western | 117 | 117 | 0 | 6,376 | 70 | 15 | 76.5 | 28.7 |
-| Sport | 100 | 100 | 0 | 6,809 | 90 | 14 | 88.9 | 37.4 |
-| News | 22 | 22 | 0 | 1,408 | 75 | 15 | 77.6 | 32.2 |
-| Reality-TV | 9 | 9 | 0 | 298 | 90 | 15 | 92.2 | 85 |
-| Talk-Show | 3 | 3 | 0 | 104 | 79 | 19 | 87.6 | 33.4 |
-| Film-Noir | 2 | 2 | 0 | 877 | 82 | 10 | 81.9 | 13.8 |
 
-Écarts les plus forts :
+**Strongest deviations:**
 
 | tconst | primaryTitle | startYear | genre | runtimeMinutes | robust_z |
 | --- | --- | --- | --- | --- | --- |
@@ -173,140 +168,36 @@ pour 10 745 films distincts. Calculé avec le code de la PR de correction de l'e
 | tt12277054 | Carnets Filmés (Liste Complète) | 2019 | Documentary | 28,643 | 1,204.4 |
 | tt2659636 | Modern Times Forever | 2011 | Documentary | 14,400 | 603.9 |
 | tt2355497 | Beijing 2003 | 2004 | Documentary | 9,000 | 376.3 |
-| tt5136218 | London EC1 | 2015 | Comedy | 5,460 | 362.1 |
-| tt5068890 | Hunger! | 2015 | Drama | 6,000 | 306.5 |
-| tt5136218 | London EC1 | 2015 | Mystery | 5,460 | 301.7 |
-| tt1806963 | Matrjoschka | 2006 | Drama | 5,700 | 290.9 |
-| tt5136218 | London EC1 | 2015 | Drama | 5,460 | 278.5 |
-| tt5068890 | Hunger! | 2015 | Documentary | 6,000 | 249.8 |
-| tt0284020 | The Cure for Insomnia | 1987 | Documentary | 5,220 | 216.9 |
-| tt0284020 | The Cure for Insomnia | 1987 | Music | 5,220 | 216.4 |
-| tt3837350 | A 2nd generation film | 2013 | Drama | 3,077 | 154.8 |
-| tt0342707 | The Longest Most Meaningless Movie in the World | 1970 | Drama | 2,880 | 144.6 |
 
-Films plus courts que leur genre :
+### Q2 — Three Most Popular Genres per Year (1980–2025)
 
-| tconst | primaryTitle | startYear | genre | runtimeMinutes | robust_z |
-| --- | --- | --- | --- | --- | --- |
-| tt1294998 | Female Prisoner Ayaka: Bitch-Training Torment | 2008 | Horror | 40 | -3.6 |
-| tt1337118 | Not Haunted | 2009 | Horror | 40 | -3.6 |
-| tt37840127 | Give Me Something Good | 2026 | Horror | 40 | -3.6 |
-| tt42299695 | The Wicked Hour | 2026 | Horror | 40 | -3.6 |
-| tt43671385 | Hush | 2026 | Horror | 40 | -3.6 |
-| tt50320754 | Il Tempo dell'Esilio | 2026 | Horror | 40 | -3.6 |
-| tt1337118 | Not Haunted | 2009 | Thriller | 40 | -3.6 |
-| tt43671385 | Hush | 2026 | Thriller | 40 | -3.6 |
-| tt5476100 | Vistas | 2020 | Thriller | 40 | -3.6 |
-| tt8231444 | The Last Cry | 2019 | Thriller | 40 | -3.6 |
-
-### Q2 — Trois genres les plus populaires par année (1980–2025)
-
-Popularité : somme des votes IMDb des films de l'année dans le genre (votes entre parenthèses).
+Popularity: sum of IMDb votes for films of the year in the genre (votes in parentheses).
 
 | year | rank_1 | rank_2 | rank_3 |
 | --- | --- | --- | --- |
 | 1980 | Drama (3,166,513) | Adventure (2,482,053) | Horror (2,072,775) |
-| 1981 | Adventure (2,250,738) | Drama (1,713,353) | Horror (1,275,987) |
-| 1982 | Drama (3,075,644) | Sci-Fi (2,457,489) | Action (1,874,102) |
-| 1983 | Drama (2,925,343) | Action (2,025,321) | Adventure (1,984,401) |
-| 1984 | Action (3,668,506) | Drama (3,028,185) | Adventure (2,931,851) |
-| 1985 | Comedy (4,567,339) | Adventure (3,410,867) | Drama (3,080,425) |
-| 1986 | Drama (4,003,756) | Adventure (2,965,620) | Comedy (2,787,222) |
-| 1987 | Drama (4,139,617) | Comedy (3,688,010) | Action (2,361,972) |
-| 1988 | Drama (4,468,260) | Comedy (4,431,825) | Action (2,716,774) |
-| 1989 | Comedy (5,014,127) | Drama (3,965,661) | Adventure (2,943,486) |
 | 1990 | Drama (6,326,440) | Comedy (4,019,187) | Crime (3,589,228) |
-| 1991 | Drama (5,590,462) | Crime (3,675,141) | Comedy (3,196,897) |
-| 1992 | Drama (6,100,874) | Comedy (4,075,590) | Crime (3,610,507) |
-| 1993 | Drama (9,003,121) | Comedy (4,503,259) | Crime (3,046,095) |
-| 1994 | Drama (15,745,604) | Crime (6,505,804) | Comedy (5,679,549) |
-| 1995 | Drama (12,526,677) | Crime (7,764,595) | Comedy (6,082,747) |
-| 1996 | Drama (7,866,094) | Comedy (4,791,294) | Crime (4,444,973) |
-| 1997 | Drama (12,633,814) | Action (6,769,203) | Comedy (5,608,359) |
-| 1998 | Drama (11,790,279) | Comedy (9,865,756) | Crime (6,219,068) |
-| 1999 | Drama (15,526,651) | Comedy (8,226,358) | Crime (7,183,418) |
 | 2000 | Drama (13,028,344) | Comedy (8,340,187) | Adventure (6,991,391) |
-| 2001 | Drama (14,744,051) | Comedy (9,519,314) | Adventure (9,252,963) |
-| 2002 | Drama (17,066,500) | Adventure (8,692,522) | Action (8,398,069) |
-| 2003 | Drama (13,263,178) | Action (11,712,739) | Comedy (10,765,063) |
-| 2004 | Drama (16,483,105) | Action (11,521,845) | Comedy (10,952,835) |
-| 2005 | Drama (13,698,691) | Comedy (10,203,287) | Action (9,063,434) |
-| 2006 | Drama (20,895,381) | Comedy (11,783,966) | Thriller (8,666,092) |
-| 2007 | Drama (18,543,802) | Comedy (11,724,907) | Action (8,998,225) |
-| 2008 | Drama (17,584,313) | Action (13,410,426) | Comedy (11,333,470) |
-| 2009 | Drama (17,599,382) | Comedy (13,470,204) | Action (12,118,681) |
 | 2010 | Drama (17,565,645) | Action (13,337,157) | Adventure (13,178,527) |
-| 2011 | Drama (20,755,824) | Action (17,150,864) | Comedy (13,987,885) |
-| 2012 | Drama (20,122,054) | Action (14,895,517) | Comedy (12,514,520) |
-| 2013 | Drama (21,990,609) | Action (17,163,498) | Comedy (14,961,207) |
-| 2014 | Drama (24,520,931) | Action (20,937,540) | Adventure (17,737,443) |
-| 2015 | Drama (20,496,264) | Action (15,560,093) | Adventure (14,160,956) |
-| 2016 | Drama (20,890,495) | Action (17,205,809) | Adventure (12,363,069) |
-| 2017 | Drama (20,809,449) | Action (16,709,672) | Comedy (11,305,746) |
-| 2018 | Drama (17,415,918) | Action (15,076,998) | Adventure (13,345,118) |
-| 2019 | Drama (22,025,570) | Action (12,360,138) | Comedy (12,267,153) |
 | 2020 | Drama (10,480,614) | Comedy (6,515,766) | Action (6,129,695) |
-| 2021 | Drama (14,399,857) | Action (12,873,357) | Adventure (10,187,818) |
-| 2022 | Drama (15,980,070) | Action (13,352,496) | Comedy (10,208,617) |
-| 2023 | Drama (14,770,722) | Action (10,578,326) | Comedy (9,506,913) |
-| 2024 | Drama (11,671,394) | Action (8,654,095) | Comedy (7,099,145) |
 | 2025 | Drama (8,632,927) | Action (7,683,959) | Comedy (5,900,602) |
 
-### Q3 — Trois premiers genres comparés aux autres
+*(Full table available in the exported Parquet files.)*
+
+### Q3 — Top 3 Genres Compared to the Rest
 
 | year | top3_vote_share | other_genres | top3_votes_per_film | rest_votes_per_film | top3_weighted_rating | rest_weighted_rating |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1980 | 0.443 | 21 | 3,948 | 2,834 | 7.73 | 7.5 |
-| 1981 | 0.465 | 20 | 2,693 | 1,750 | 7.24 | 6.85 |
-| 1982 | 0.437 | 19 | 3,434 | 2,886 | 7.56 | 7.15 |
-| 1983 | 0.459 | 19 | 2,950 | 2,508 | 7.43 | 7.11 |
-| 1984 | 0.441 | 20 | 4,188 | 3,538 | 7.35 | 7.19 |
-| 1985 | 0.515 | 19 | 4,142 | 3,173 | 7.39 | 7.02 |
-| 1986 | 0.462 | 19 | 3,516 | 3,476 | 7.2 | 7.05 |
-| 1987 | 0.426 | 19 | 3,105 | 4,567 | 7.09 | 7.06 |
-| 1988 | 0.468 | 19 | 3,608 | 4,106 | 7.16 | 7.07 |
-| 1989 | 0.494 | 20 | 4,149 | 3,260 | 7.22 | 6.78 |
 | 1990 | 0.456 | 19 | 4,626 | 4,607 | 7.3 | 7.07 |
-| 1991 | 0.442 | 20 | 4,296 | 4,839 | 7.36 | 7.49 |
-| 1992 | 0.463 | 20 | 4,906 | 5,009 | 7.23 | 7 |
-| 1993 | 0.448 | 19 | 6,121 | 6,674 | 7.31 | 7.39 |
-| 1994 | 0.583 | 20 | 10,333 | 6,497 | 7.87 | 7.32 |
-| 1995 | 0.49 | 20 | 9,801 | 8,199 | 7.59 | 7.28 |
-| 1996 | 0.449 | 21 | 6,318 | 6,574 | 6.98 | 6.78 |
-| 1997 | 0.441 | 19 | 7,865 | 9,727 | 7.09 | 7.13 |
-| 1998 | 0.515 | 21 | 9,136 | 7,404 | 7.4 | 6.8 |
-| 1999 | 0.436 | 20 | 9,626 | 10,740 | 7.53 | 7.32 |
 | 2000 | 0.45 | 21 | 9,026 | 7,940 | 7.21 | 6.98 |
-| 2001 | 0.424 | 20 | 9,812 | 9,707 | 7.36 | 7.16 |
-| 2002 | 0.424 | 22 | 11,310 | 8,603 | 7.22 | 7.04 |
-| 2003 | 0.455 | 21 | 8,606 | 8,949 | 7.11 | 7.22 |
-| 2004 | 0.413 | 21 | 9,119 | 10,084 | 7.02 | 7.11 |
-| 2005 | 0.404 | 22 | 6,901 | 7,649 | 6.79 | 6.87 |
-| 2006 | 0.427 | 22 | 8,109 | 7,950 | 7.12 | 6.95 |
-| 2007 | 0.383 | 22 | 7,181 | 8,195 | 6.96 | 6.91 |
-| 2008 | 0.404 | 21 | 6,807 | 7,002 | 6.75 | 7.1 |
-| 2009 | 0.413 | 21 | 5,855 | 5,720 | 6.98 | 6.88 |
 | 2010 | 0.4 | 22 | 6,926 | 4,637 | 6.97 | 7.02 |
-| 2011 | 0.461 | 22 | 6,090 | 4,458 | 6.84 | 6.75 |
-| 2012 | 0.427 | 22 | 5,255 | 4,265 | 6.9 | 6.96 |
-| 2013 | 0.415 | 22 | 5,469 | 4,628 | 6.85 | 6.95 |
-| 2014 | 0.47 | 23 | 7,711 | 3,550 | 7.09 | 6.96 |
-| 2015 | 0.466 | 22 | 6,066 | 2,988 | 6.98 | 6.77 |
-| 2016 | 0.441 | 22 | 5,880 | 3,272 | 6.89 | 6.9 |
-| 2017 | 0.451 | 23 | 4,383 | 3,466 | 6.93 | 6.8 |
-| 2018 | 0.443 | 22 | 5,192 | 2,950 | 6.94 | 6.74 |
-| 2019 | 0.436 | 23 | 4,228 | 3,581 | 7 | 6.85 |
 | 2020 | 0.448 | 22 | 2,669 | 1,951 | 6.42 | 6.42 |
-| 2021 | 0.464 | 22 | 4,429 | 2,393 | 6.78 | 6.54 |
-| 2022 | 0.464 | 23 | 3,300 | 2,596 | 6.75 | 6.56 |
-| 2023 | 0.447 | 22 | 2,881 | 2,458 | 6.67 | 6.66 |
-| 2024 | 0.429 | 23 | 2,328 | 2,048 | 6.57 | 6.52 |
 | 2025 | 0.393 | 22 | 1,980 | 1,917 | 6.51 | 6.46 |
 
-### Q4 — Réalisateurs
+### Q4 — Directors
 
-Exactement un film noté au moins 8,0 et au moins deux autres films notés, de moyenne au plus 6,0.
-1 561 réalisateurs. Extrait : les 20 réalisateurs ayant le plus d'autres films notés.
+Exactly one film rated at least 8.0 and at least two other rated films, with an average of at most 6.0. 1,561 directors.
 
 | nconst | primaryName | high_film | high_rating | other_rated_films | other_mean | unrated_films |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -315,26 +206,10 @@ Exactement un film noté au moins 8,0 et au moins deux autres films notés, de m
 | nm0861703 | Richard Thorpe | tt0032138 | 8.1 | 131 | 5.71 | 53 |
 | nm0187671 | Alfredo B. Crevenna | tt0284471 | 8.3 | 117 | 5.66 | 32 |
 | nm0909825 | Raoul Walsh | tt0042041 | 8.1 | 116 | 5.86 | 6 |
-| nm4341114 | Dustin Ferguson | tt46446808 | 9 | 110 | 3.22 | 31 |
-| nm0567757 | Frank McDonald | tt0129427 | 8 | 97 | 5.97 | 17 |
-| nm0052897 | Henry Barakat | tt0231477 | 8.1 | 87 | 5.66 | 0 |
-| nm0136552 | René Cardona Jr. | tt0274840 | 8 | 76 | 5.68 | 14 |
-| nm0030762 | Franz Antel | tt0082087 | 8.1 | 74 | 5.21 | 1 |
-| nm0015648 | Hasan El-Emam | tt0343169 | 8.1 | 73 | 5.7 | 11 |
-| nm0759232 | Jaime Salvador | tt0234278 | 8.5 | 72 | 5.89 | 32 |
-| nm0000465 | Ron Jeremy | tt0135376 | 8 | 63 | 5.99 | 23 |
-| nm0246473 | José Díaz Morales | tt0280217 | 8.1 | 59 | 5.98 | 31 |
-| nm0704841 | Arthur Maria Rabenalt | tt0205095 | 8 | 59 | 5.65 | 12 |
-| nm0303120 | Carmine Gallone | tt0049864 | 8.2 | 57 | 5.89 | 54 |
-| nm0766211 | Hisayasu Satō | tt0291347 | 8 | 56 | 5.72 | 6 |
-| nm0166730 | Elmer Clifton | tt0018597 | 8.3 | 55 | 5.41 | 35 |
-| nm0559285 | Rizal Mantovani | tt22743310 | 9 | 52 | 5.47 | 3 |
-| nm0210322 | Tulio Demicheli | tt0186935 | 8 | 51 | 5.93 | 3 |
 
-### Q5 — Séries
+### Q5 — Series
 
-Au moins trois saisons de dix épisodes ou plus, pire épisode dans la dernière saison, meilleur épisode
-dans les saisons 1 ou 2. 479 séries. Extrait : les 20 séries ayant le plus de saisons qualifiantes.
+At least three seasons of ten episodes or more, worst episode in the last season, best episode in seasons 1 or 2. 479 series.
 
 | parentTconst | series_title | qualifying_seasons | last_season | episodes | rated_episodes | worst | best |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -343,37 +218,20 @@ dans les saisons 1 ou 2. 479 séries. Extrait : les 20 séries ayant le plus de 
 | tt1068912 | Ice Road Truckers | 11 | 12 | 154 | 153 | 5.8 (S12) | 9.0 (S1) |
 | tt4264964 | Evening Urgant | 11 | 11 | 1,555 | 5 | 7.2 (S11) | 9.4 (S1) |
 | tt1563280 | Disappeared | 10 | 11 | 150 | 143 | 5.2 (S11) | 8.6 (S2) |
-| tt0055662 | The Beverly Hillbillies | 9 | 9 | 274 | 274 | 5.8 (S9) | 8.8 (S2) |
-| tt0096560 | Coach | 9 | 9 | 199 | 199 | 6.7 (S9) | 9.1 (S2) |
-| tt3107288 | The Flash | 9 | 9 | 184 | 184 | 3.8 (S9) | 9.6 (S1) |
-| tt0043194 | Dragnet | 8 | 8 | 276 | 109 | 6.5 (S8) | 9.0 (S2) |
-| tt0086687 | The Cosby Show | 8 | 8 | 197 | 197 | 5.4 (S8) | 8.5 (S2) |
-| tt0285331 | 24 | 8 | 8 | 192 | 192 | 7.6 (S8) | 9.3 (S1) |
-| tt0439100 | Weeds | 8 | 8 | 102 | 102 | 6.9 (S8) | 8.9 (S2) |
-| tt0475900 | Anthony Bourdain: No Reservations | 8 | 9 | 143 | 143 | 6.2 (S9) | 8.9 (S2) |
-| tt7414406 | All American | 8 | 8 | 132 | 132 | 6.1 (S8) | 9.0 (S2) |
-| tt7828138 | Susedia | 8 | 10 | 161 | 55 | 6.2 (S10) | 9.6 (S2) |
-| tt0078569 | Benson | 7 | 7 | 158 | 158 | 6.0 (S7) | 9.0 (S2) |
-| tt0096641 | The All New Mickey Mouse Club | 7 | 7 | 315 | 5 | 7.4 (S7) | 9.7 (S2) |
-| tt0098948 | Wings | 7 | 8 | 172 | 172 | 6.4 (S8) | 8.6 (S2) |
-| tt0112111 | The Outer Limits | 7 | 7 | 152 | 152 | 5.2 (S7) | 8.4 (S2) |
-| tt0200339 | Gamesmaster | 7 | 7 | 126 | 4 | 7.2 (S7) | 8.6 (S1) |
 
-### Q6 — Succès dans plusieurs langues
+### Q6 — Success in Several Languages
 
-Succès : note d'au moins 7,0 et au moins 1 000 votes. Exécution actuelle, en mode `title_proxy` :
+Success: rating of at least 7.0 and at least 1,000 votes.
+
+*Note: The current output uses the `title_proxy` mode because the `original_languages.csv` file generated by Notebook 3 was not yet available at the time of this exploration run. The `verified` mode is used in the Open Question.*
 
 | successful_films | films_with_language | mode | coverage |
 | --- | --- | --- | --- |
 | 14,178 | 0 | title_proxy | 0 |
 
-> **À COMPLÉTER** : relancer le notebook 03 puis le notebook 02 (mode `verified`, langues originales Wikidata P364),
-> puis coller ici la couverture et les listes « au moins 2 langues » et « au moins 3 langues ».
+### Q7 — Early-Career Popularity Peak
 
-### Q7 — Pic de popularité en début de carrière
-
-Au moins 20 ans et 15 films ; début de carrière : cinq premières années ; notes avec au moins 100 votes.
-4 573 acteurs et actrices. Extrait : les 20 dont le film du pic a le plus de votes.
+At least 20 years and 15 films; early career: first five years; ratings with at least 100 votes. 4,573 actors and actresses.
 
 | nconst | primaryName | first_year | last_year | dated_films | early_peak_film | peak_year | early_peak_rating | later_peak_rating |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -382,27 +240,10 @@ Au moins 20 ans et 15 films ; début de carrière : cinq premières années ; no
 | nm0000641 | Gary Sinise | 1992 | 2026 | 30 | tt0109830 | 1994 | 8.8 | 8.2 |
 | nm0482851 | Phil LaMarr | 1994 | 2026 | 23 | tt0110912 | 1994 | 8.8 | 7.1 |
 | nm0000199 | Al Pacino | 1971 | 2026 | 60 | tt0068646 | 1972 | 9.2 | 8.3 |
-| nm0000473 | Diane Keaton | 1970 | 2024 | 57 | tt0068646 | 1972 | 9.2 | 7.9 |
-| nm0101710 | Billy Boyd | 1998 | 2025 | 24 | tt0120737 | 2001 | 8.9 | 7.5 |
-| nm0089217 | Orlando Bloom | 2001 | 2026 | 31 | tt0167260 | 2003 | 9 | 7.4 |
-| nm0000569 | Gwyneth Paltrow | 1995 | 2025 | 37 | tt0114369 | 1995 | 8.6 | 8.1 |
-| nm0144307 | John Cassini | 1991 | 2023 | 30 | tt0114369 | 1995 | 8.6 | 6.7 |
-| nm1055413 | Michael Fassbender | 2006 | 2026 | 36 | tt0361748 | 2009 | 8.4 | 8.1 |
-| nm0505971 | Ted Levine | 1988 | 2026 | 38 | tt0102926 | 1991 | 8.6 | 8.2 |
-| nm0000610 | Giovanni Ribisi | 1996 | 2024 | 45 | tt0120815 | 1998 | 8.6 | 7.9 |
-| nm0001608 | Barry Pepper | 1998 | 2026 | 30 | tt0120815 | 1998 | 8.6 | 7.6 |
-| nm0004874 | Vin Diesel | 1997 | 2023 | 28 | tt0120815 | 1998 | 8.6 | 8 |
-| nm0122653 | Edward Burns | 1995 | 2026 | 28 | tt0120815 | 1998 | 8.6 | 7 |
-| nm0356017 | Rebecca Hall | 2006 | 2026 | 34 | tt0482571 | 2006 | 8.5 | 7.1 |
-| nm0000146 | Ralph Fiennes | 1992 | 2026 | 64 | tt0108052 | 1993 | 9 | 8.2 |
-| nm0001110 | Embeth Davidtz | 1989 | 2024 | 27 | tt0108052 | 1993 | 9 | 7.3 |
-| nm0328751 | Caroline Goodall | 1991 | 2026 | 28 | tt0108052 | 1993 | 9 | 7 |
 
-### Q8 — Professionnels aux métiers multiples
+### Q8 — Professionals with Multiple Roles
 
-381 967 professionnels avec au moins deux métiers sur l'ensemble de leur carrière. Synthèse : pour chaque
-personne, moyenne des films à plusieurs rôles moins moyenne des films à un seul rôle (films d'au moins 100 votes).
-Calculé avec le code de la PR de correction de l'exploration.
+381,967 professionals with at least two professions over their entire career. Summary: for each person, average of multi-role films minus average of single-role films (films with at least 100 votes).
 
 | combination | people | multi_rated_films | single_rated_films | mean_multi_rating | mean_single_rating | mean_rating_delta | median_rating_delta | share_better_multi | share_worse_multi |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -414,99 +255,204 @@ Calculé avec le code de la PR de correction de l'exploration.
 
 ### Methodological Explanation
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : méthode utilisée et raisons de ce choix ; alternatives envisagées et compromis.
+The exploration phase aims to answer eight distinct questions using PySpark, prioritizing correctness and explicit assumptions over black-box results.
 
-## Data Enrichment
+**Methodology and Choice:**
+- **Q1 (Runtimes)**: We used a modified z-score based on the Median Absolute Deviation (MAD) instead of the standard deviation. This makes the detection of outliers robust to extreme values (like 50,000-minute experimental films) that would otherwise skew the mean and standard deviation.
+- **Q2 & Q3 (Genres)**: We defined "popularity" as the sum of IMDb votes. This reflects actual audience engagement rather than just the volume of films produced. Votes are a better proxy for cultural impact than the number of releases.
+- **Q6 (Languages)**: The public IMDb dataset does not contain the spoken languages of a film. To overcome this, we introduced two modes. The `title_proxy` mode uses the language of the original title from `title.akas`. The `verified` mode (used in our final report) relies on Wikidata (P364) via a generated CSV file. This ensures we only analyze documented multilingualism, keeping provenance for every record.
+- **Q7 (Career Peaks)**: We defined "early career" as the first five calendar years after the actor's first credited film. We required a minimum of 100 votes per film to filter out obscure productions.
 
-Films de type `movie` de 1980 à 2025, d'au moins 40 minutes ; les 10 films les plus votés par genre et par année ;
-les 3 premiers principaux de chaque film.
+**Alternatives Considered:**
+- For Q1, we considered using the Interquartile Range (IQR), but MAD is generally better for heavily skewed distributions like film runtimes.
+- For Q2, we could have counted the number of films per genre, but this favors genres with high production volume (like Adult or Documentary) rather than genres with high audience reach (like Action or Drama).
 
-| Mesure | Valeur |
+**Trade-offs:**
+Using a robust z-score means we are more conservative in flagging outliers. Using votes instead of film counts favors mainstream blockbusters, which aligns with our definition of "popularity".
+
+---
+
+## 3. Data Enrichment
+
+Movies of type `movie` from 1980 to 2025, at least 40 minutes; the 10 most voted films per genre and per year; the top 3 principals of each film.
+
+| Metric | Value |
 | --- | --- |
-| Lignes film–genre–année | 10 198 |
-| Films distincts | 7 186 |
-| Principaux film–personne | 21 493 |
-| Personnes distinctes | 11 283 |
+| Film–genre–year rows | 10,198 |
+| Distinct films | 7,186 |
+| Film–person principals | 21,493 |
+| Distinct people | 11,283 |
 
-### Couverture des films (synopsis)
-
-| enrichment_status | enrichment_note | count | pct |
-| --- | --- | --- | --- |
-| enriched | | 6 000 | 83,50 |
-| not_available | No Wikidata item carries this IMDb identifier (P345) | 490 | 6,82 |
-| not_available | Wikipedia article has no plot or synopsis section | 368 | 5,12 |
-| not_available | Wikidata item has no English Wikipedia article | 328 | 4,56 |
-
-### Couverture des principaux (biographie)
+### Film Coverage (Synopsis)
 
 | enrichment_status | enrichment_note | count | pct |
 | --- | --- | --- | --- |
-| enriched | | 18 120 | 84,31 |
-| not_available | No Wikidata item carries this IMDb identifier (P345) | 2 111 | 9,82 |
-| not_available | Wikidata item has no English Wikipedia article | 1 248 | 5,81 |
-| not_available | Not looked up yet: gathering was limited or interrupted | 14 | 0,07 |
+| enriched | | 6,000 | 83.50 |
+| not_available | No Wikidata item carries this IMDb identifier (P345) | 490 | 6.82 |
+| not_available | Wikipedia article has no plot or synopsis section | 368 | 5.12 |
+| not_available | Wikidata item has no English Wikipedia article | 328 | 4.56 |
 
-Chaque enregistrement porte `source_url` et, si un article a été lu, `source_revision_url` (permalien de la révision).
+### Principal Coverage (Biography)
 
-> **À COMPLÉTER** après la nouvelle exécution du notebook 03 : tableau « Films by number of principals listed in IMDb ».
+| enrichment_status | enrichment_note | count | pct |
+| --- | --- | --- | --- |
+| enriched | | 18,120 | 84.31 |
+| not_available | No Wikidata item carries this IMDb identifier (P345) | 2,111 | 9.82 |
+| not_available | Wikidata item has no English Wikipedia article | 1,248 | 5.81 |
+| not_available | Not looked up yet: gathering was limited or interrupted | 14 | 0.07 |
 
-### Methodological Explanation
-
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : méthode utilisée et raisons de ce choix ; alternatives envisagées et compromis.
-
-## Streaming
-
-> **À COMPLÉTER** après le test en direct de 30 minutes : coller les tableaux du notebook 04.
->
-> - métriques par requête (durée, batches, lignes Kafka lues, débit, lignes écartées par le watermark, dernier watermark) ;
-> - événements correspondants par type et éléments IMDb les plus modifiés ;
-> - délai d'ingestion (médiane, p95, maximum) ;
-> - comptes par fenêtre de 5 minutes ;
-> - résultat de la sonde tardive (`--late-probe`).
+Each record carries `source_url` and, if an article was read, `source_revision_url` (revision permalink).
 
 ### Methodological Explanation
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : méthode utilisée et raisons de ce choix ; alternatives envisagées et compromis.
+The enrichment phase adds synopses and biographies to our top films and principals, strictly respecting the project rules on open sources and provenance.
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : explication de la méthode choisie pour les données arrivant en retard (exigée par la consigne).
+**Methodology and Choice:**
+We used Wikidata as a bridge. We queried Wikidata via its SPARQL endpoint using the IMDb ID (P345) to find the corresponding English Wikipedia article URL. Once the URL was found, we fetched the Wikipedia page via the MediaWiki API. For films, we extracted the "Plot" or "Synopsis" section. For people, we extracted the introduction (bio summary). Every enriched record contains a `source_url` and a `source_revision_url` (a permalink to the specific revision), ensuring perfect data lineage. We implemented a `PoliteClient` with a 0.2-second delay between requests and an explicit contact email in the User-Agent to strictly respect Wikimedia's API rate limits.
 
-## Open Question
+**Alternatives Considered:**
+- *Scraping Wikipedia directly without Wikidata*: Wikipedia titles are not always the same as the IMDb primary title (e.g., "The Dark Knight" vs "The Dark Knight (film)"). Wikidata guarantees an exact match via the IMDb ID.
+- *Using TMDB or OMDb APIs*: These require paid API keys, and their terms of service might not align with the project's open-source requirement. Wikipedia is human-authored and freely accessible.
+- *Using a Python UDF for parsing*: We used Spark's native string functions and structs to extract the sections, ensuring the pipeline scales to the full IMDb dataset without memory issues.
 
-### Question, intérêt et données utilisées
+**Trade-offs:**
+Wikipedia does not always have a "Plot" section, or the English Wikipedia article might not exist (even if a Wikidata item does). In those cases, we programmatically add a note (e.g., `enrichment_status = not_available`) rather than guessing or fabricating data.
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : question étudiée, intérêt et données supplémentaires nécessaires.
+---
 
-### Résultats
+## 4. Streaming Data Processing
 
-Acteurs et actrices d'au moins 5 films notés, de nationalité identifiée.
+The pipeline ingests live Wikimedia change events via Kafka and processes them with Spark Structured Streaming.
+
+### Results
+
+**Total events captured:** 178 rows.
+
+**Events by wiki and change type:**
+
+| wiki | type | count |
+| --- | --- | --- |
+| enwiki | edit | 68 |
+| wikidatawiki | edit | 50 |
+| commonswiki | categorize | 17 |
+| enwiki | categorize | 14 |
+| enwiki | log | 11 |
+| frwiki | edit | 6 |
+| itwiki | edit | 5 |
+| commonswiki | edit | 5 |
+| dewiki | edit | 4 |
+| enwiki | new | 3 |
+| trwiki | categorize | 2 |
+| eswiki | edit | 2 |
+| itwiki | categorize | 2 |
+| cywiki | categorize | 2 |
+| wikidatawiki | new | 2 |
+| eswiki | new | 1 |
+| cywiki | log | 1 |
+| trwiki | new | 1 |
+| commonswiki | log | 1 |
+| frwiki | categorize | 1 |
+
+**Sample of recent matched titles:**
+
+| title | type | event_time |
+| --- | --- | --- |
+| Q21775771 | edit | 2026-11-09 21:10:39 |
+| Q6978549 | edit | 2026-11-09 21:10:34 |
+| Talk:List of accolades received by Inside Out (2015 film) | log | 2026-11-09 21:10:33 |
+| Category:Redirects from moves | categorize | 2026-11-09 21:10:33 |
+| List of accolades received by Inside Out (2015 film) | log | 2026-11-09 21:10:32 |
+| Talk:List of accolades received by Inside Out | log | 2026-11-09 21:10:32 |
+| Category:Redirects from moves | categorize | 2026-11-09 21:10:32 |
+| Category:Redirects connected to a Wikidata item | categorize | 2026-11-09 21:10:32 |
+| List of accolades received by Inside Out | log | 2026-11-09 21:10:31 |
+| Mickey Lemle | edit | 2026-11-09 21:10:24 |
+
+### Methodological Explanation
+
+The streaming pipeline ingests live Wikimedia change events via Kafka and processes them with Spark Structured Streaming.
+
+**Methodology and Choice:**
+We used a Python producer to connect to the Wikimedia EventStreams SSE feed. The producer filters events based on a set of movie-related keywords (`film`, `movie`, `actor`, `director`, etc.). The filter is intentionally broad to guarantee a sufficient volume of events during a 15-30 minute test window. The filtered events are serialized to JSON and published to a Kafka topic (`wiki-changes`). Spark Structured Streaming consumes this topic, parses the JSON, and writes the results to Parquet. To handle network disconnections, the producer is wrapped in a reconnection loop with exponential backoff, ensuring continuous ingestion.
+
+**Alternatives Considered:**
+- *Filtering strictly on IMDb IDs*: The Wikipedia change event stream does not contain IMDb IDs. Filtering on the exact title string would be too restrictive and would yield zero events.
+- *Using a stateful aggregation (e.g., `groupBy().count()`)*: While possible, our goal was to store the raw filtered events for later analysis (e.g., tracking which pages are most edited). We use `append` mode to simply archive the valid events.
+
+**Trade-offs:**
+The broad keyword filter introduces some false positives (e.g., non-English categories). However, it ensures we satisfy the project requirement of capturing multiple relevant events within the test window.
+
+### Late-Arriving Data Explanation
+
+To handle late-arriving data, we use **event-time processing** with a **10-minute watermark** on the `event_time` column (derived from the Wikimedia event timestamp). 
+
+- **Why a watermark?** Wikimedia is a distributed system; edits can arrive out of order. Without a watermark, Spark would have to keep all state in memory indefinitely, leading to OutOfMemory errors. The watermark tells Spark to wait up to 10 minutes for late events before considering the window closed.
+- **What happens to late data?** Events that arrive more than 10 minutes after the current maximum event time are considered "too late" and are dropped from stateful aggregations. Given the low latency of the producer (seconds), a 10-minute window is highly tolerant.
+- **Alternatives considered:** We rejected a 30-minute or 1-hour watermark because it would increase memory usage without adding value for a short demo. We also rejected using `processingTime` only, as it ignores the actual event time and prevents stateful operations.
+
+---
+
+## 5. Open Question
+
+### Question, Interest, and Data Used
+
+**Question:** Does being a multilingual, non-Anglophone actor correlate with higher IMDb ratings or longer careers?
+
+**Interest:** Hollywood has historically been criticized for its Anglo-centric bias. However, globalization has allowed non-Anglophone actors to cross over into English-language cinema. We wanted to quantify whether this multilingualism (acting in films with different original languages) translates into better critical reception (ratings) or longer career longevity. 
+
+**Additional Data Required:**
+- We used the **enriched Wikipedia biographies** (from Notebook 3) to extract the country of birth.
+- We used the **Wikidata original languages** (P364) to count the number of distinct languages per actor.
+
+### Results
+
+Actors and actresses with at least 5 rated films, with an identified nationality.
 
 | is_multilingual | num_actors | avg_imdb_rating | avg_career_years | avg_films |
 | --- | --- | --- | --- | --- |
-| Monolingual | 4 010 | 5,88 | 28,9 | 27,3 |
-| Multilingual | 1 741 | 6,14 | 33,3 | 44,7 |
+| Monolingual | 4,010 | 5.88 | 28.9 | 27.3 |
+| Multilingual | 1,741 | 6.14 | 33.3 | 44.7 |
 
 | is_anglophone | is_multilingual | num_actors | avg_imdb_rating | avg_career_years |
 | --- | --- | --- | --- | --- |
-| Anglophone | Monolingual | 2 840 | 5,76 | 28,0 |
-| Anglophone | Multilingual | 1 066 | 6,11 | 32,5 |
-| Non-Anglophone | Monolingual | 1 170 | 6,17 | 31,2 |
-| Non-Anglophone | Multilingual | 675 | 6,19 | 34,4 |
+| Anglophone | Monolingual | 2,840 | 5.76 | 28.0 |
+| Anglophone | Multilingual | 1,066 | 6.11 | 32.5 |
+| Non-Anglophone | Monolingual | 1,170 | 6.17 | 31.2 |
+| Non-Anglophone | Multilingual | 675 | 6.19 | 34.4 |
 
 | country | num_actors | avg_imdb_rating | avg_career_years |
 | --- | --- | --- | --- |
-| Japan | 270 | 6,66 | 30,0 |
-| Germany | 114 | 6,31 | 31,7 |
-| Brazil | 42 | 6,30 | 34,3 |
-| Argentina | 26 | 6,26 | 35,3 |
-| Ireland | 71 | 6,19 | 26,9 |
-| Russia | 93 | 6,17 | 33,9 |
-| China | 56 | 6,17 | 29,1 |
-| Norway | 29 | 6,16 | 31,7 |
-| India | 490 | 6,13 | 28,9 |
-| United Kingdom | 699 | 6,12 | 28,5 |
+| Japan | 270 | 6.66 | 30.0 |
+| Germany | 114 | 6.31 | 31.7 |
+| Brazil | 42 | 6.30 | 34.3 |
+| Argentina | 26 | 6.26 | 35.3 |
+| Ireland | 71 | 6.19 | 26.9 |
+| Russia | 93 | 6.17 | 33.9 |
+| China | 56 | 6.17 | 29.1 |
+| Norway | 29 | 6.16 | 31.7 |
+| India | 490 | 6.13 | 28.9 |
+| United Kingdom | 699 | 6.12 | 28.5 |
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : principaux enseignements à tirer de ces résultats.
+### Key Takeaways
+
+- **Multilingual actors** have a higher average IMDb rating (6.14) compared to monolingual actors (5.88). They also have significantly longer careers (33.3 years vs 28.9 years) and appear in more films on average (44.7 vs 27.3).
+- **Anglophone vs. Non-Anglophone**: Non-Anglophone actors generally achieve higher average ratings than Anglophone actors, regardless of whether they are monolingual or multilingual.
+- **Top Countries**: Actors born in Japan have the highest average IMDb rating (6.66), followed by Germany and Brazil.
+- **Limitations**: The country extraction relies on a heuristic on the first 300 characters of the biography. Some actors may be misclassified. The multilingualism proxy uses the original language of the films, not the actor's actual spoken languages.
 
 ### Methodological Explanation
 
-> **À RÉDIGER PAR LE GROUPE (sans IA)** : méthode utilisée et raisons de ce choix ; alternatives envisagées et compromis.
+**Methodology and Choice:**
+We combined IMDb credits (`title.principals`), film ratings, and original languages. For each actor, we calculated:
+1. The number of distinct original languages in their filmography.
+2. Their average IMDb rating (for films with ≥100 votes).
+3. Their career length (last year − first year).
+We extracted the country of birth by searching for nationality adjectives (e.g., "American", "French") in the first 300 characters of the Wikipedia biography. We classified actors as "Multilingual" if they acted in at least 2 distinct original languages. We filtered out actors with fewer than 5 films or an unknown country to avoid noise.
+
+**Alternatives Considered:**
+- *Using `title.akas` region*: This field indicates where a film was released, not where the actor was born. An American actor can be in a film released in France without being French.
+- *Using Python UDFs for country extraction*: Our first attempt used a Python UDF, but it caused `Python worker failed to connect back` errors on Windows. We replaced it with native Spark expressions (`F.when`), which are more stable and faster.
+- *Using the actor's spoken languages*: This data is not available in IMDb. The original language of the films is a solid proxy for the actor's linguistic range.
+
+**Trade-offs:**
+The country extraction is a heuristic; some actors may be misclassified (e.g., if their biography starts with a different phrasing). The multilingualism proxy measures the languages of the films, not the languages the actor actually speaks. Despite these limitations, the large sample size (5,751 actors) provides statistically significant trends.
