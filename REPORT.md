@@ -133,7 +133,7 @@ Seuils de l'exécution : `PARAMETERS` dans `notebooks/02_data_exploration.ipynb`
 
 Films de type `movie` d'au moins 40 minutes, genres d'au moins 30 films, score z modifié
 `0.6745 × (durée − médiane) / MAD` d'au moins 3,5 en valeur absolue. Résultat : 16 401 couples film–genre
-pour 10 745 films distincts. Calculé avec le code de la PR de correction de l'exploration.
+pour 10 745 films distincts. Exécution `192d74d7dd8d48b085a7ae4924eb3708`, code des PR de correction.
 
 | genre | outliers | longer | shorter | genre_films | median_min | mad_min | mean_min | sd_min |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -306,7 +306,7 @@ Popularité : somme des votes IMDb des films de l'année dans le genre (votes en
 ### Q4 — Réalisateurs
 
 Exactement un film noté au moins 8,0 et au moins deux autres films notés, de moyenne au plus 6,0.
-1 561 réalisateurs. Extrait : les 20 réalisateurs ayant le plus d'autres films notés.
+1 563 réalisateurs. Extrait : les 20 réalisateurs ayant le plus d'autres films notés.
 
 | nconst | primaryName | high_film | high_rating | other_rated_films | other_mean | unrated_films |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -361,14 +361,39 @@ dans les saisons 1 ou 2. 479 séries. Extrait : les 20 séries ayant le plus de 
 
 ### Q6 — Succès dans plusieurs langues
 
-Succès : note d'au moins 7,0 et au moins 1 000 votes. Exécution actuelle, en mode `title_proxy` :
+Succès : note d'au moins 7,0 et au moins 1 000 votes. Langues : langue originale du film d'après Wikidata (P364),
+exportée par le notebook 03 (mode `verified`). Seuls les films couverts par l'enrichissement ont une langue.
 
 | successful_films | films_with_language | mode | coverage |
 | --- | --- | --- | --- |
-| 14,178 | 0 | title_proxy | 0 |
+| 14,178 | 2,644 | verified | 0.186 |
 
-> **À COMPLÉTER** : relancer le notebook 03 puis le notebook 02 (mode `verified`, langues originales Wikidata P364),
-> puis coller ici la couverture et les listes « au moins 2 langues » et « au moins 3 langues ».
+Au moins deux langues : 1 144 acteurs et actrices. Au moins trois langues : 496.
+Extrait : les 20 premiers par nombre de langues (identiques dans les deux listes). Entre parenthèses, le nombre de
+films à succès dans chaque langue.
+
+| nconst | primaryName | language_count | languages_films |
+| --- | --- | --- | --- |
+| nm0303826 | Jacques Gamblin | 10 | ar (1), de (2), en (1), es (1), fr (1), ja (1), ku (1), nl (1), pt (1), ru (1) |
+| nm0000164 | Anthony Hopkins | 9 | bg (1), de (2), en (20), es (1), fr (1), it (1), la (3), pt (1), ro (1) |
+| nm0001838 | Rachel Weisz | 9 | ar (1), de (1), egy (1), el (1), en (9), fr (1), he (1), it (1), la (1) |
+| nm0229301 | Branko Djuric | 8 | bs (2), de (1), en (2), fr (1), hr (1), it (1), sh (1), sr (2) |
+| nm0004486 | Bruno Ganz | 8 | de (4), en (2), es (1), fr (1), he (1), ja (1), sv (1), tr (1) |
+| nm0001354 | Ciarán Hinds | 8 | ar (1), de (1), en (10), fr (1), he (1), it (1), ja (1), la (1) |
+| nm0957193 | Hanns Zischler | 8 | ar (1), da (1), de (4), en (4), fr (2), he (1), it (1), ru (1) |
+| nm0000353 | Willem Dafoe | 8 | ar (1), de (2), en (21), es (1), fr (1), it (2), ro (1), ru (1) |
+| nm0004778 | Adrien Brody | 7 | de (1), en (11), fr (2), hr (1), ja (1), ru (1), tpi (1) |
+| nm0226699 | Bogdan Diklic | 7 | bs (1), de (1), en (1), fr (1), hr (1), sh (1), sr (2) |
+| nm0001691 | Geoffrey Rush | 7 | ar (1), de (2), en (11), fr (1), he (1), it (1), la (1) |
+| nm0000172 | Harvey Keitel | 7 | bg (1), de (1), el (1), en (12), es (1), fr (2), ru (1) |
+| nm0374949 | Johan Heldenbergh | 7 | bs (1), de (1), en (3), he (1), hr (1), nl (2), sr (1) |
+| nm0627453 | John Neville | 7 | ar (1), de (1), en (4), fr (1), he (1), it (1), la (1) |
+| nm0000596 | Jonathan Pryce | 7 | de (1), en (9), es (1), fr (1), it (1), la (1), pt (1) |
+| nm0000553 | Liam Neeson | 7 | ar (1), en (11), fr (1), ja (1), la (1), sq (1), sr (1) |
+| nm0323483 | Luis Gnecco | 7 | de (1), en (1), es (2), fr (1), it (1), la (1), pt (1) |
+| nm0003909 | Michael Lonsdale | 7 | ar (2), de (1), en (4), fr (2), he (1), it (2), la (1) |
+| nm0000899 | Monica Bellucci | 7 | bg (1), en (2), es (1), fr (1), it (2), la (1), ro (1) |
+| nm0618768 | Mustafa Nadarević | 7 | bs (2), de (1), en (1), fr (1), hr (1), sh (1), sr (1) |
 
 ### Q7 — Pic de popularité en début de carrière
 
@@ -402,14 +427,14 @@ Au moins 20 ans et 15 films ; début de carrière : cinq premières années ; no
 
 381 967 professionnels avec au moins deux métiers sur l'ensemble de leur carrière. Synthèse : pour chaque
 personne, moyenne des films à plusieurs rôles moins moyenne des films à un seul rôle (films d'au moins 100 votes).
-Calculé avec le code de la PR de correction de l'exploration.
+Exécution `192d74d7dd8d48b085a7ae4924eb3708`, code des PR de correction.
 
 | combination | people | multi_rated_films | single_rated_films | mean_multi_rating | mean_single_rating | mean_rating_delta | median_rating_delta | share_better_multi | share_worse_multi |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | any | 42,618 | 104,392 | 313,054 | 5.707 | 5.729 | -0.022 | 0 | 0.49 | 0.499 |
 | director+writer | 20,886 | 54,476 | 113,126 | 5.825 | 5.836 | -0.011 | 0 | 0.492 | 0.497 |
 | actor+writer | 5,866 | 8,528 | 62,072 | 5.516 | 5.559 | -0.042 | 0 | 0.493 | 0.497 |
-| actor+director+writer | 3,892 | 6,408 | 41,655 | 5.479 | 5.56 | -0.081 | -0.05 | 0.474 | 0.517 |
+| actor+director+writer | 3,892 | 6,408 | 41,655 | 5.479 | 5.56 | -0.081 | -0.05 | 0.475 | 0.517 |
 | actor+director | 1,446 | 2,012 | 26,723 | 5.553 | 5.705 | -0.151 | -0.119 | 0.443 | 0.548 |
 
 ### Methodological Explanation
@@ -426,29 +451,38 @@ les 3 premiers principaux de chaque film.
 | Lignes film–genre–année | 10 198 |
 | Films distincts | 7 186 |
 | Principaux film–personne | 21 493 |
-| Personnes distinctes | 11 283 |
+| Personnes distinctes | 11 282 |
 
 ### Couverture des films (synopsis)
 
 | enrichment_status | enrichment_note | count | pct |
 | --- | --- | --- | --- |
-| enriched | | 6 000 | 83,50 |
+| enriched | | 5 986 | 83,30 |
 | not_available | No Wikidata item carries this IMDb identifier (P345) | 490 | 6,82 |
-| not_available | Wikipedia article has no plot or synopsis section | 368 | 5,12 |
+| not_available | Wikipedia article has no plot or synopsis section | 382 | 5,32 |
 | not_available | Wikidata item has no English Wikipedia article | 328 | 4,56 |
 
 ### Couverture des principaux (biographie)
 
 | enrichment_status | enrichment_note | count | pct |
 | --- | --- | --- | --- |
-| enriched | | 18 120 | 84,31 |
-| not_available | No Wikidata item carries this IMDb identifier (P345) | 2 111 | 9,82 |
-| not_available | Wikidata item has no English Wikipedia article | 1 248 | 5,81 |
-| not_available | Not looked up yet: gathering was limited or interrupted | 14 | 0,07 |
+| enriched | | 18 128 | 84,34 |
+| not_available | No Wikidata item carries this IMDb identifier (P345) | 2 115 | 9,84 |
+| not_available | Wikidata item has no English Wikipedia article | 1 249 | 5,81 |
+| not_available | Wikipedia article has no introduction text | 1 | 0,00 |
 
 Chaque enregistrement porte `source_url` et, si un article a été lu, `source_revision_url` (permalien de la révision).
 
-> **À COMPLÉTER** après la nouvelle exécution du notebook 03 : tableau « Films by number of principals listed in IMDb ».
+### Films selon le nombre de principaux listés par IMDb
+
+| principal_count | principals_note | count |
+| --- | --- | --- |
+| 0 | IMDb lists only 0 principal(s) for this film (fewer than 3) | 7 |
+| 1 | IMDb lists only 1 principal(s) for this film (fewer than 3) | 12 |
+| 2 | IMDb lists only 2 principal(s) for this film (fewer than 3) | 20 |
+| 3 | | 7 147 |
+
+Langues originales exportées pour Q6 : 7 403 lignes film–langue (`data/reference/original_languages.csv`).
 
 ### Methodological Explanation
 
@@ -456,13 +490,69 @@ Chaque enregistrement porte `source_url` et, si un article a été lu, `source_r
 
 ## Streaming
 
-> **À COMPLÉTER** après le test en direct de 30 minutes : coller les tableaux du notebook 04.
->
-> - métriques par requête (durée, batches, lignes Kafka lues, débit, lignes écartées par le watermark, dernier watermark) ;
-> - événements correspondants par type et éléments IMDb les plus modifiés ;
-> - délai d'ingestion (médiane, p95, maximum) ;
-> - comptes par fenêtre de 5 minutes ;
-> - résultat de la sonde tardive (`--late-probe`).
+Test en direct du 15 novembre 2026, 16:37–17:08 UTC : flux Wikimedia `recentchange` réel (`enwiki` et
+`wikidatawiki`) → Kafka → Spark Structured Streaming. Paramètres : watermark 10 minutes, fenêtres de 5 minutes,
+déclenchement toutes les 30 secondes, lecture du topic depuis `earliest`. Une sonde datée de 30 minutes dans le passé
+(`--late-probe "Inside Out (2015 film)" --minutes 30`) a été envoyée à 16:53.
+
+### Métriques par requête
+
+| query | minutes | batches | kafka_rows_read | rows_per_second | dropped_by_watermark | last_watermark |
+| --- | --- | --- | --- | --- | --- | --- |
+| matched_events | 30,8 | 63 | 16 285 | 8,82 | 1 | 2026-11-15 16:58:00 |
+| window_counts | 30,7 | 63 | 16 285 | 8,83 | 1 | 2026-11-15 16:58:00 |
+
+Producteur : flux interrompu à 16:52:34 (réponse terminée prématurément, puis échec de résolution DNS), reconnexion
+automatique à 16:53:09.
+
+### Événements reliés à IMDb
+
+| match_type | events | distinct_items |
+| --- | --- | --- |
+| wikipedia_page | 36 | 22 |
+| imdb_title | 26 | 13 |
+| wikidata_item | 3 | 3 |
+
+Éléments IMDb les plus modifiés :
+
+| match_type | label | imdb_ids | events |
+| --- | --- | --- | --- |
+| wikipedia_page | Emily Osment | nm0652089 | 10 |
+| imdb_title | The Three Musketeers | tt0108333, tt0486728, tt15049210, tt1509767, tt3274666, … | 5 |
+| imdb_title | Street Fighter | tt0111301, tt1579705 | 4 |
+| imdb_title | Jailer | tt11663228, tt21158466 | 3 |
+| wikipedia_page | Danai Gurira | nm1775091 | 2 |
+| imdb_title | The Cat in the Hat | tt0312528 | 2 |
+| wikipedia_page | Forgetting Sarah Marshall | tt0800039 | 2 |
+| imdb_title | Ebenezer | tt36667189, tt43658564 | 2 |
+| imdb_title | Coraline | tt0327597 | 2 |
+| wikipedia_page | Kelly Marie Tran | nm4511652 | 2 |
+
+### Délai d'ingestion (événements réels)
+
+| events | median_s | p95_s | max_s |
+| --- | --- | --- | --- |
+| 61 | 2,55 | 9,38 | 10,34 |
+
+### Comptes par fenêtre de 5 minutes (temps de l'événement)
+
+Seules les fenêtres closes par le watermark (16:58) au moment de l'arrêt sont écrites.
+
+| window_start | window_end | match_type | events | distinct_items | mean_ingest_delay_s |
+| --- | --- | --- | --- | --- | --- |
+| 16:35 | 16:40 | imdb_title | 3 | 3 | 2,75 |
+| 16:35 | 16:40 | wikipedia_page | 6 | 4 | 2,94 |
+| 16:40 | 16:45 | imdb_title | 2 | 2 | 4,82 |
+| 16:40 | 16:45 | wikipedia_page | 3 | 3 | 5,26 |
+| 16:45 | 16:50 | imdb_title | 6 | 2 | 2,45 |
+| 16:45 | 16:50 | wikipedia_page | 12 | 5 | 2,50 |
+| 16:50 | 16:55 | imdb_title | 2 | 1 | 2,08 |
+| 16:50 | 16:55 | wikidata_item | 1 | 1 | 1,54 |
+| 16:50 | 16:55 | wikipedia_page | 5 | 4 | 3,41 |
+
+### Sonde tardive
+
+Lignes écartées par le watermark : 1 (`numRowsDroppedByWatermark`). Sondes présentes dans la sortie : 0.
 
 ### Methodological Explanation
 
