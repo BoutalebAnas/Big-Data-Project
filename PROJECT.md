@@ -5,8 +5,8 @@
 
 - **Group:** gr-04
 - Anas BOUTALEB - [anas.boutaleb@edu.ece.fr] - GitHub: BoutalebAnas
-- Thaddée Lepoezeller - [thaddee.lepoezeller@edu.ece.fr] - GitHub: thomassbgn
-- Thomas Soubagne - [thomas.soubagne@edu.ece.fr] - GitHub: TaDLpZ
+- Thaddée Lepoezeller - [thaddee.lepoezeller@edu.ece.fr] - GitHub: TaDLpZ
+- Thomas Soubagné - [thomas.soubagne@edu.ece.fr] - GitHub: thomassbgn
 
 ## Installation and Setup
 
