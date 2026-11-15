@@ -4,9 +4,9 @@
 ## Contributors
 
 - **Group:** gr-04
-- **Member 1:** Anas BOUTALEB, GitHub: BoutalebAnas
-- **Member 2:** Thaddée Lepoezeller, GitHub: thomassbgn
-- **Member 3:** Thomas Soubagné, GitHub: TaDLpZ
+- Anas BOUTALEB - [anas.boutaleb@edu.ece.fr] - GitHub: BoutalebAnas
+- Thaddée Lepoezeller - [thaddee.lepoezeller@edu.ece.fr] - GitHub: thomassbgn
+- Thomas Soubagne - [thomas.soubagne@edu.ece.fr] - GitHub: TaDLpZ
 
 ## Installation and Setup
 
@@ -299,6 +299,19 @@ The `CONTACT` variable is set in the notebook configuration cell.
 It can also be provided via the `WIKI_CONTACT` environment variable.
 
 The pipeline respects API rate limits (0.2s interval) and caches every answer so that an interrupted run resumes without asking again.
+
+## Execution Order
+
+| Step | Command or notebook | Output | Approximate duration |
+| --- | --- | --- | --- |
+| 1 | `python -m pytest -q` | Environment check | 2 min |
+| 2 | `notebooks/01_data_preparation.ipynb` | `data/processed/<preparation>/` | 35 min |
+| 3 | `notebooks/03_data_enrichment.ipynb` | `data/enrichment/output/<preparation>/`, `data/reference/original_languages.csv` | 3 min with caches, 1-2h without |
+| 4 | `notebooks/02_data_exploration.ipynb` | `data/results/<preparation>/<execution>/` | 10 min |
+| 5 | Kafka, producer and pipeline, then `notebooks/04_streaming.ipynb` | `data/streaming/output/` | 30 min |
+| 6 | `notebooks/05_open_question.ipynb` | Open question tables | 5 min |
+
+*Note: Notebook 03 must run before Notebook 02 because it creates the original languages reference file that switches Q6 to `verified` mode. Notebooks 04 and 05 read the enrichment output from Notebook 03.*
 
 ## AI Usage
 
