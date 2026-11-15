@@ -3,9 +3,10 @@
 
 ## Contributors
 
-- [Name 1] - [email1@ece.fr]
-- Anas BOUTALEB - [anas.boutaleb@edu.ece.fr]
-- [Name 3] - [email3@ece.fr]
+- **Group:** gr-04
+- **Member 1:** Anas BOUTALEB, GitHub: BoutalebAnas
+- **Member 2:** Thaddée Lepoezeller, GitHub: thomassbgn
+- **Member 3:** Thomas Soubagné, GitHub: TaDLpZ
 
 ## Installation and Setup
 
