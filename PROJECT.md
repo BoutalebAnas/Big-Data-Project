@@ -2,14 +2,33 @@
 
 ## Membres
 
-La liste des contributeurs et leurs adresses e-mail sont à compléter par le groupe avant la remise.
+| Membre | E-mail | GitHub | Parties |
+| --- | --- | --- | --- |
+| Thomas Soubagne | thomas.soubagne@edu.ece.fr | thomassbgn | Data Preparation, Data Exploration |
+| *à compléter* | *à compléter* | TaDLpZ | Data Enrichment |
+| Anas Boutaleb | anas.boutaleb@edu.ece.fr | BoutalebAnas | Streaming, Open Question |
+
+## Ordre d'exécution
+
+| Étape | Commande ou notebook | Produit | Durée indicative |
+| --- | --- | --- | --- |
+| 1 | `python -m pytest -q` | Vérification de l'environnement | 2 min |
+| 2 | `notebooks/01_data_preparation.ipynb` | `data/processed/<préparation>/` | 35 min |
+| 3 | `notebooks/03_data_enrichment.ipynb` | `data/enrichment/output/<préparation>/`, `data/reference/original_languages.csv` | 3 min avec les caches, 1 à 2 h sans |
+| 4 | `notebooks/02_data_exploration.ipynb` | `data/results/<préparation>/<exécution>/` | 10 min |
+| 5 | Kafka, producteur et pipeline, puis `notebooks/04_streaming.ipynb` | `data/streaming/output/` | 30 min |
+| 6 | `notebooks/05_open_question.ipynb` | Tableaux de la question ouverte | 5 min |
+
+Le notebook 03 doit précéder le 02 : il crée le référentiel des langues originales qui fait passer Q6
+en mode `verified`. Les notebooks 04 et 05 lisent la sortie d'enrichissement du notebook 03.
 
 ## Installation
 
-Le traitement local complet requiert Python 3.11 ou 3.12, Java 17, un accès HTTPS à PyPI
-et à IMDb, 8 Gio de RAM disponibles et environ 20 Gio de disque libre pour les archives,
-le travail Spark et une préparation. Sur Windows, exécuter les commandes dans Ubuntu WSL 2.
-Pour de meilleures performances, cloner le projet sur le système de fichiers Linux de WSL.
+Le traitement local complet requiert Python 3.11 ou 3.12, Java 17, Docker (pour Kafka), un accès HTTPS
+à PyPI, à IMDb et aux API Wikimedia, 8 Gio de RAM disponibles et environ 20 Gio de disque libre pour les
+archives, le travail Spark et une préparation. Sur Windows, exécuter les commandes dans Ubuntu WSL 2
+(recommandé), ou installer les binaires Hadoop décrits dans [setup.md](setup.md) pour travailler sous
+Windows natif. Pour de meilleures performances sous WSL, cloner le projet sur le système de fichiers Linux.
 Java 17 doit être accessible via `JAVA_HOME` ou `PATH`.
 
 Sur Ubuntu ou Ubuntu WSL, installer les prérequis depuis le terminal Linux.
@@ -33,12 +52,14 @@ jupyter lab
 ```
 
 Ouvrir `notebooks/01_data_preparation.ipynb` avec le noyau **Python (IMDb)** puis exécuter
-toutes les cellules. Répéter avec `notebooks/02_data_exploration.ipynb`. L'exécution peut
-aussi se faire sans interface depuis la racine. Les copies exécutées seront dans `/tmp`.
+toutes les cellules. Continuer dans l'ordre du tableau ci-dessus : 03 (section *Enrichissement*),
+puis 02, 04 (section *Streaming*) et 05. L'exécution peut aussi se faire sans interface depuis la
+racine. Les copies exécutées seront dans `/tmp`.
 
 ```bash
 jupyter nbconvert --to notebook --execute --ExecutePreprocessor.kernel_name=imdb \
   --ExecutePreprocessor.timeout=-1 --output-dir=/tmp notebooks/01_data_preparation.ipynb
+# notebook 03 : voir la section Enrichissement (WIKI_CONTACT requis)
 jupyter nbconvert --to notebook --execute --ExecutePreprocessor.kernel_name=imdb \
   --ExecutePreprocessor.timeout=-1 --output-dir=/tmp notebooks/02_data_exploration.ipynb
 ```
@@ -109,8 +130,84 @@ les identifiants IMDb aux déclarations de langue originale, après vérificatio
 sources. [Identifiant IMDb P345](https://www.wikidata.org/wiki/Property:P345) ·
 [Langue originale P364](https://www.wikidata.org/wiki/Property:P364)
 
+Le notebook `03_data_enrichment.ipynb` construit ce fichier à partir de Wikidata (P364)
+pour les films enrichis.
+
+## Enrichissement
+
+Les API Wikimedia exigent une adresse de contact dans l'en-tête `User-Agent`. La définir avant
+d'ouvrir Jupyter, puis exécuter `notebooks/03_data_enrichment.ipynb`.
+
+```bash
+export WIKI_CONTACT=prenom.nom@edu.ece.fr
+jupyter nbconvert --to notebook --execute --ExecutePreprocessor.kernel_name=imdb \
+  --ExecutePreprocessor.timeout=-1 --output-dir=/tmp notebooks/03_data_enrichment.ipynb
+```
+
+Les réponses de Wikidata et de Wikipedia sont mises en cache dans `data/enrichment/raw/` (versionné).
+Seuls les identifiants absents du cache sont demandés, à raison d'une requête au plus toutes les
+0,2 seconde. `GATHER_LIMIT=10` limite la collecte pour un premier essai. Les tables Spark sont écrites
+dans `data/enrichment/output/<préparation>/films` et `.../principals`.
+
+## Streaming
+
+Démarrer Kafka, puis lancer le pipeline et le producteur dans deux terminaux, depuis la racine du dépôt
+et avec l'environnement Python activé.
+
+```bash
+docker compose up -d
+```
+
+```bash
+# Terminal 1 : pipeline Spark, arrêt automatique après 30 minutes
+STREAM_DURATION_MINUTES=30 python -m src.streaming_pipeline
+```
+
+```bash
+# Terminal 2 : producteur Wikimedia vers Kafka (Ctrl+C pour l'arrêter à la fin)
+export WIKI_CONTACT=prenom.nom@edu.ece.fr
+python -m src.streaming_producer
+```
+
+Pour vérifier le traitement des données tardives, envoyer pendant l'exécution un événement daté de
+30 minutes dans le passé. Il doit être écarté par le watermark.
+
+```bash
+python -m src.streaming_producer --late-probe "Inside Out (2015 film)" --minutes 30
+```
+
+Le pipeline crée le topic s'il n'existe pas et charge la table de référence depuis la préparation et
+la sortie d'enrichissement. Il écrit `matched_events` et `window_counts` en Parquet dans
+`data/streaming/output/`, avec leurs checkpoints dans `data/streaming/checkpoints/`, et la progression
+de chaque batch dans `data/streaming/output/metrics/progress.jsonl`. Ouvrir ensuite
+`notebooks/04_streaming.ipynb` pour les métriques. Supprimer `data/streaming/` avant un nouveau test
+indépendant.
+
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `KAFKA_BROKER` | `localhost:9092` | Adresse du broker |
+| `KAFKA_TOPIC` | `wiki-changes` | Topic Kafka |
+| `STREAM_WIKIS` | `enwiki,wikidatawiki` | Wikis transmis par le producteur |
+| `STREAM_WATERMARK` | `10 minutes` | Retard toléré sur le temps de l'événement |
+| `STREAM_WINDOW` | `5 minutes` | Taille des fenêtres de comptage |
+| `STREAM_TRIGGER` | `30 seconds` | Intervalle entre deux micro-batchs |
+| `STREAM_STARTING_OFFSETS` | `earliest` | Position de lecture initiale du topic |
+| `STREAM_DURATION_MINUTES` | aucun | Durée avant arrêt automatique |
+
+Arrêter Kafka avec `docker compose down`.
+
+## Question ouverte
+
+Exécuter `notebooks/05_open_question.ipynb` après le notebook 03. Il lit la sortie d'enrichissement
+et `data/reference/original_languages.csv`, sans nouvel accès réseau.
+
 ## Utilisation d'IA
 
-OpenAI Codex a été utilisé pour développer le chargement, les contrôles de qualité, le
-nettoyage, les requêtes d'exploration, les deux notebooks, les tests et ce guide technique.
-Chaque membre rédige lui-même ses explications et raisonnements dans `REPORT.md`.
+| Outil | Tâches |
+| --- | --- |
+| OpenAI Codex | Chargement, contrôles de qualité, nettoyage, requêtes d'exploration, notebooks 01 et 02, tests associés, première version de ce guide |
+| Claude Code (Anthropic) | Audit du dépôt par rapport à la consigne ; correctifs de l'enrichissement (nettoyage du texte, signalement des films à moins de trois principaux) ; Q1 robuste, synthèse de Q8 et message de Q6 ; réécriture de la correspondance IMDb et du traitement des données tardives dans le streaming, avec ses tests ; `.gitignore` des sorties ; scripts d'extraction des tableaux de `REPORT.md` ; sections d'exécution de ce guide |
+| *à compléter par chaque membre* | *autres outils et tâches* |
+
+Aucune explication, aucun choix méthodologique et aucune conclusion de `REPORT.md` n'a été rédigé
+avec une IA. Les tableaux de résultats qu'il contient sont des sorties de requêtes.
