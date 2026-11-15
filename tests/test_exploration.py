@@ -12,16 +12,21 @@ def people(spark, *ids):
     return spark.createDataFrame([(key, key.upper()) for key in ids], "nconst string, primaryName string")
 
 
-def test_outliers_use_genre_mean_and_exclude_shorts(spark):
-    films = spark.createDataFrame([
-        ("tt1", "A", 2000, 60, "Drama", None, None),
-        ("tt2", "B", 2000, 60, "Drama", None, None),
-        ("tt3", "C", 2000, 180, "Drama,Drama", None, None),
-        ("tt4", "D", 2000, 20, "Drama", None, None),
-    ], FILM_SCHEMA)
-    outliers = q.runtime_outliers(films, min_minutes=40, min_genre_films=3, min_z=1.0).collect()
-    assert len(outliers) == 1 and outliers[0].tconst == "tt3"
-    assert outliers[0].genre_mean_minutes == 100
+def test_outliers_use_robust_genre_scores_and_exclude_shorts(spark):
+    runtimes = [90, 95, 100, 105, 110, 300]
+    films = spark.createDataFrame(
+        [(f"tt{i}", str(i), 2000, minutes, "Drama,Drama", None, None) for i, minutes in enumerate(runtimes)]
+        + [("tt9", "Short", 2000, 20, "Drama", None, None)],
+        FILM_SCHEMA,
+    )
+    outliers = q.runtime_outliers(films, min_minutes=40, min_genre_films=3, min_robust_z=3.5).collect()
+    assert [row.tconst for row in outliers] == ["tt5"]          # the short film is not a feature
+    row = outliers[0]
+    assert (row.genre_films, row.genre_median_minutes, row.genre_mad_minutes) == (6, 100, 5)
+    assert row.robust_z == pytest.approx(0.6745 * 200 / 5)
+    assert row.genre_mean_minutes == pytest.approx(sum(runtimes) / 6)
+    # The classic z-score is diluted by the extreme value itself and would miss it at 3.5.
+    assert row.z_score < 3.5
 
 
 def test_genre_rank_and_comparison_reconcile_votes(spark):
@@ -139,3 +144,29 @@ def test_multi_role_uses_one_rating_per_film_and_normalizes_acting(spark):
     assert result.career_roles == ["actor", "director"]
     assert (result.multi_role_films, result.single_role_films, result.single_rated_films) == (1, 2, 1)
     assert result.rating_delta == 2.0
+
+
+def test_multi_role_summary_compares_people_with_themselves_per_combination(spark):
+    films = spark.createDataFrame([
+        ("tt1", 8.0, 100), ("tt2", 6.0, 100), ("tt3", 7.0, 100), ("tt4", 9.0, 100),
+        ("tt5", 5.0, 100), ("tt6", 4.0, 100), ("tt7", 9.9, 5),
+    ], "tconst string, averageRating double, numVotes long")
+    crew = spark.createDataFrame([
+        ("tt1", "nm1", "nm1"), ("tt3", "nm2", None), ("tt5", "nm3", "nm3"), ("tt7", "nm1", None),
+    ], "tconst string, directors string, writers string")
+    principals = spark.createDataFrame([
+        ("tt1", "nm1", "actor"),                                  # nm1: actor+director+writer on tt1
+        ("tt2", "nm1", "actor"),                                  # nm1: single role, 6.0
+        ("tt3", "nm2", "actress"), ("tt3", "nm2", "producer"),    # nm2: actor+director+producer on tt3
+        ("tt4", "nm2", "actor"),                                  # nm2: single role, 9.0
+        ("tt6", "nm3", "actor"),                                  # nm3: single role, 4.0
+        ("tt7", "nm1", "actor"),                                  # too few votes: ignored in means
+    ], "tconst string, nconst string, category string")
+    rows = {r.combination: r for r in q.multi_role_summary(films, crew, principals, min_votes=100).collect()}
+    assert set(rows) == {"any", "actor+director+writer", "actor+director", "director+writer"}
+    assert rows["any"].people == 3
+    assert rows["any"].mean_rating_delta == pytest.approx((2.0 - 2.0 + 1.0) / 3)
+    assert rows["any"].share_better_multi == pytest.approx(2 / 3)
+    assert rows["actor+director+writer"].people == 1 and rows["actor+director+writer"].mean_rating_delta == 2.0
+    assert rows["actor+director"].mean_rating_delta == -2.0            # nm2, producer ignored
+    assert rows["director+writer"].mean_rating_delta == 1.0            # nm3
