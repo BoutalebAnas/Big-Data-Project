@@ -15,18 +15,37 @@ def _movie_genres(films):
     ).filter(F.col("genre") != "").drop("genres")
 
 
-def runtime_outliers(films, *, min_minutes, min_genre_films, min_z):
-    features = _movie_genres(films.filter(F.col("runtimeMinutes") >= min_minutes))
-    genre_window = Window.partitionBy("genre")
+MAD_TO_SD = 0.6745  # Iglewicz & Hoaglin modified z-score constant
+
+
+def runtime_outliers(films, *, min_minutes, min_genre_films, min_robust_z, accuracy=10000):
+    """Flag runtimes far from their genre with a median/MAD (modified) z-score.
+
+    The mean and standard deviation are kept for reference, but the selection uses
+    the robust score because a handful of absurd runtimes (several days long) inflate
+    the standard deviation of whole genres and hide genuinely atypical films.
+    """
+    features = _movie_genres(films.filter(F.col("runtimeMinutes") >= min_minutes)).select(
+        "tconst", "primaryTitle", "startYear", "genre", "runtimeMinutes"
+    )
+    stats = features.groupBy("genre").agg(
+        F.count("*").alias("genre_films"),
+        F.avg("runtimeMinutes").alias("genre_mean_minutes"),
+        F.stddev_pop("runtimeMinutes").alias("genre_sd_minutes"),
+        F.percentile_approx("runtimeMinutes", 0.5, accuracy).alias("genre_median_minutes"),
+    ).filter(F.col("genre_films") >= min_genre_films)
+    with_median = features.join(stats, "genre")
+    mad = with_median.groupBy("genre").agg(
+        F.percentile_approx(F.abs(F.col("runtimeMinutes") - F.col("genre_median_minutes")), 0.5, accuracy)
+        .alias("genre_mad_minutes")
+    ).filter(F.col("genre_mad_minutes") > 0)
     return (
-        features.select("tconst", "primaryTitle", "startYear", "genre", "runtimeMinutes")
-        .withColumn("genre_films", F.count("*").over(genre_window))
-        .withColumn("genre_mean_minutes", F.avg("runtimeMinutes").over(genre_window))
-        .withColumn("genre_sd_minutes", F.stddev_pop("runtimeMinutes").over(genre_window))
-        .filter((F.col("genre_films") >= min_genre_films) & (F.col("genre_sd_minutes") > 0))
+        with_median.join(mad, "genre")
         .withColumn("delta_minutes", F.col("runtimeMinutes") - F.col("genre_mean_minutes"))
-        .withColumn("z_score", F.col("delta_minutes") / F.col("genre_sd_minutes"))
-        .filter(F.abs("z_score") >= min_z)
+        .withColumn("z_score", F.try_divide(F.col("delta_minutes"), F.col("genre_sd_minutes")))
+        .withColumn("robust_z", MAD_TO_SD * (F.col("runtimeMinutes") - F.col("genre_median_minutes"))
+                    / F.col("genre_mad_minutes"))
+        .filter(F.abs("robust_z") >= min_robust_z)
     )
 
 
@@ -216,7 +235,11 @@ def early_career_peaks(films, actors, people, *, through_year, min_years, min_fi
     )
 
 
-def multi_role_performance(films, crew, principals, people, *, min_votes):
+CORE_ROLES = ("actor", "director", "writer")
+
+
+def _role_projects(films, crew, principals):
+    """One row per person and film with the sorted set of roles held on that film."""
     credits = principals.select(
         "tconst", "nconst", F.lower(F.trim("category")).alias("role")
     ).filter(
@@ -226,9 +249,52 @@ def multi_role_performance(films, crew, principals, people, *, min_votes):
     all_credits = credits.unionByName(_crew_credits(crew, "directors", "director")).unionByName(
         _crew_credits(crew, "writers", "writer")
     )
-    projects = all_credits.join(films.select("tconst", "averageRating", "numVotes"), "tconst").groupBy(
+    return all_credits.join(films.select("tconst", "averageRating", "numVotes"), "tconst").groupBy(
         "nconst", "tconst", "averageRating", "numVotes"
     ).agg(F.sort_array(F.collect_set("role")).alias("roles"))
+
+
+def multi_role_summary(films, crew, principals, *, min_votes):
+    """Population-level answer to Q8: multi-role films versus the same people's single-role films.
+
+    One row per combination of core roles held on the same film (actor, director, writer)
+    plus an ``any`` row covering every multi-role film. Each person is compared with
+    themselves: the mean rating of their films in that combination minus the mean rating of
+    their single-role films, both restricted to films with at least ``min_votes`` votes.
+    """
+    projects = _role_projects(films, crew, principals).withColumn(
+        "rating", F.when(F.col("numVotes") >= min_votes, F.col("averageRating"))
+    )
+    core = F.array_intersect("roles", F.array(*[F.lit(role) for role in CORE_ROLES]))
+    combos = projects.filter(F.size("roles") >= 2).select(
+        "nconst", "rating",
+        F.explode(F.array_distinct(F.array(
+            F.lit("any"), F.when(F.size(core) >= 2, F.concat_ws("+", F.array_sort(core)))
+        ))).alias("combination"),
+    ).filter(F.col("combination").isNotNull())
+    single = projects.filter(F.size("roles") == 1).groupBy("nconst").agg(
+        F.avg("rating").alias("single_mean_rating"), F.count("rating").alias("single_rated_films")
+    ).filter(F.col("single_rated_films") > 0)
+    paired = combos.groupBy("nconst", "combination").agg(
+        F.avg("rating").alias("multi_mean_rating"), F.count("rating").alias("multi_rated_films")
+    ).filter(F.col("multi_rated_films") > 0).join(single, "nconst").withColumn(
+        "rating_delta", F.col("multi_mean_rating") - F.col("single_mean_rating")
+    )
+    return paired.groupBy("combination").agg(
+        F.count("*").alias("people"),
+        F.sum("multi_rated_films").alias("multi_rated_films"),
+        F.sum("single_rated_films").alias("single_rated_films"),
+        F.avg("multi_mean_rating").alias("mean_multi_rating"),
+        F.avg("single_mean_rating").alias("mean_single_rating"),
+        F.avg("rating_delta").alias("mean_rating_delta"),
+        F.percentile_approx("rating_delta", 0.5, 10000).alias("median_rating_delta"),
+        F.avg(F.when(F.col("rating_delta") > 0, 1.0).otherwise(0.0)).alias("share_better_multi"),
+        F.avg(F.when(F.col("rating_delta") < 0, 1.0).otherwise(0.0)).alias("share_worse_multi"),
+    )
+
+
+def multi_role_performance(films, crew, principals, people, *, min_votes):
+    projects = _role_projects(films, crew, principals)
     multi = F.size("roles") >= 2
     rating = F.when(F.col("numVotes") >= min_votes, F.col("averageRating"))
     profiles = projects.groupBy("nconst").agg(
