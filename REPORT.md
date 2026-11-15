@@ -568,23 +568,24 @@ Lignes écartées par le watermark : 1 (`numRowsDroppedByWatermark`). Sondes pr�
 
 ### Résultats
 
-Acteurs et actrices d'au moins 5 films notés, de nationalité identifiée.
+Acteurs et actrices d'au moins 5 films notés, de nationalité identifiée. Sortie de `notebooks/05_open_question.ipynb`
+sur l'enrichissement de la préparation `452e5d1ccb1142b3823d9ba935e401a0`.
 
 | is_multilingual | num_actors | avg_imdb_rating | avg_career_years | avg_films |
 | --- | --- | --- | --- | --- |
-| Monolingual | 4 010 | 5,88 | 28,9 | 27,3 |
+| Monolingual | 4 017 | 5,88 | 28,9 | 27,3 |
 | Multilingual | 1 741 | 6,14 | 33,3 | 44,7 |
 
 | is_anglophone | is_multilingual | num_actors | avg_imdb_rating | avg_career_years |
 | --- | --- | --- | --- | --- |
-| Anglophone | Monolingual | 2 840 | 5,76 | 28,0 |
+| Anglophone | Monolingual | 2 843 | 5,76 | 27,9 |
 | Anglophone | Multilingual | 1 066 | 6,11 | 32,5 |
-| Non-Anglophone | Monolingual | 1 170 | 6,17 | 31,2 |
+| Non-Anglophone | Monolingual | 1 174 | 6,16 | 31,1 |
 | Non-Anglophone | Multilingual | 675 | 6,19 | 34,4 |
 
 | country | num_actors | avg_imdb_rating | avg_career_years |
 | --- | --- | --- | --- |
-| Japan | 270 | 6,66 | 30,0 |
+| Japan | 272 | 6,66 | 29,9 |
 | Germany | 114 | 6,31 | 31,7 |
 | Brazil | 42 | 6,30 | 34,3 |
 | Argentina | 26 | 6,26 | 35,3 |
@@ -592,7 +593,7 @@ Acteurs et actrices d'au moins 5 films notés, de nationalité identifiée.
 | Russia | 93 | 6,17 | 33,9 |
 | China | 56 | 6,17 | 29,1 |
 | Norway | 29 | 6,16 | 31,7 |
-| India | 490 | 6,13 | 28,9 |
+| India | 491 | 6,13 | 28,9 |
 | United Kingdom | 699 | 6,12 | 28,5 |
 
 > **À RÉDIGER PAR LE GROUPE (sans IA)** : principaux enseignements à tirer de ces résultats.
