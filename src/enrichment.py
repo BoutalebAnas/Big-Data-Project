@@ -134,7 +134,8 @@ def _clean_text(column):
     text = F.regexp_replace(text, r"\(\s*[;,]?\s*\)", "")             # emptied pronunciations
     text = F.regexp_replace(text, r"[ \t]+", " ")
     text = F.regexp_replace(text, r"\s*\n\s*\n\s*", "\n\n")
-    text = F.trim(text)
+    # F.trim only strips spaces; leading/trailing newlines must go as well.
+    text = F.regexp_replace(text, r"^\s+|\s+\z", "")
     return F.when(F.length(text) > 0, text)
 
 # the gatherer is suppose to get only one article per movie but here we filter the one with missing url
@@ -177,9 +178,11 @@ def _lineage():
     return reason, source, revision
 
 
-def enrich_films(selected, links, articles):
-    # the function to create enrich dataframes 
-    memberships = selected.groupBy("tconst").agg( 
+def enrich_films(selected, links, articles, chosen=None, *, min_principals=3):
+    # the function to create enrich dataframes
+    # ``chosen`` (the output of select_principals) is optional: when given, each film
+    # records how many principals IMDb lists and a note when fewer than ``min_principals``.
+    memberships = selected.groupBy("tconst").agg(
         F.first("primaryTitle").alias("primaryTitle"),
         F.first("startYear").alias("startYear"),
         F.first("runtimeMinutes").alias("runtimeMinutes"),
@@ -187,6 +190,18 @@ def enrich_films(selected, links, articles):
         F.first("numVotes").alias("numVotes"),
         F.array_sort(F.collect_list(F.struct("genre", "genre_rank"))).alias("top_genres"),
     )# select what we need from the films from imdb
+    if chosen is not None:
+        counts = chosen.groupBy("tconst").agg(F.countDistinct("nconst").alias("principal_count"))
+        memberships = memberships.join(counts, "tconst", "left").withColumn(
+            "principal_count", F.coalesce("principal_count", F.lit(0))
+        )
+    else:
+        memberships = memberships.withColumn("principal_count", F.lit(None).cast("long"))
+    principals_note = F.when(
+        F.col("principal_count") < min_principals,
+        F.concat(F.lit("IMDb lists only "), F.col("principal_count").cast("string"),
+                 F.lit(f" principal(s) for this film (fewer than {min_principals})")),
+    )
     joined = (
         memberships.join(links, memberships.tconst == links.imdb_id, "left").drop("imdb_id")
         .join(articles, "article_url", "left")
@@ -210,6 +225,8 @@ def enrich_films(selected, links, articles):
         F.col("lead").alias("wikipedia_lead"),
         F.when(note.isNull(), F.lit("enriched")).otherwise(F.lit("not_available")).alias("enrichment_status"),
         note.alias("enrichment_note"),
+        F.col("principal_count").cast("int").alias("principal_count"),
+        principals_note.alias("principals_note"),
         source.alias("source_url"),
         revision.alias("source_revision_url"),
         "wikidata_uri",

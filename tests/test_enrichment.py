@@ -195,6 +195,23 @@ def test_enriched_films_explain_every_outcome_and_keep_lineage(spark):
     assert rows["tt6"].source_revision_url is None
 
 
+def test_enriched_films_flag_films_with_fewer_than_three_principals(spark):
+    selected = spark.createDataFrame(
+        [(f"tt{i}", f"F{i}", 2000, 90, 7.0, 10, "Drama", i) for i in (1, 2, 3)], SELECTED
+    )
+    chosen = spark.createDataFrame(
+        [("tt1", f"nm{i}", i, i, "actor") for i in (1, 2, 3)] + [("tt2", "nm9", 1, 1, "actor")],
+        "tconst string, nconst string, ordering int, principal_rank int, category string",
+    )
+    links, articles = enrichment_inputs(spark)
+    rows = {r.tconst: r for r in e.enrich_films(selected, links, articles, chosen).collect()}
+    assert (rows["tt1"].principal_count, rows["tt1"].principals_note) == (3, None)
+    assert rows["tt2"].principal_count == 1 and rows["tt2"].principals_note.startswith("IMDb lists only 1")
+    assert rows["tt3"].principal_count == 0 and "fewer than 3" in rows["tt3"].principals_note
+    unchecked = e.enrich_films(selected, links, articles).first()
+    assert unchecked.principal_count is None and unchecked.principals_note is None
+
+
 def test_enriched_principals_carry_biography_and_notes(spark):
     chosen = spark.createDataFrame(
         [("tt1", "nm1", 1, 1, "actress"), ("tt1", "nm2", 2, 2, "actor")],
