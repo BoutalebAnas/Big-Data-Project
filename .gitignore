@@ -235,3 +235,4 @@ data/streaming/checkpoints/
 # have to query Wikimedia again for every identifier.
 /data/enrichment/output/
 /data/enrichment/ids/
+data/

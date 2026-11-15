@@ -1,3 +1,6 @@
-# Big-Data-Project
+# ECE Big Data Processing Project
 
-Le [guide du projet](PROJECT.md) décrit l’installation et l’exécution des notebooks IMDb.
+- **Group:** gr-04
+- **Member 1:** Anas BOUTALEB, GitHub: BoutalebAnas
+- **Member 2:** Thaddée Lepoezeller, GitHub: thomassbgn
+- **Member 3:** Thomas Soubagne, GitHub: TaDLpZ
